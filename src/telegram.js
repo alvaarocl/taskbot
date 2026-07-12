@@ -1,6 +1,7 @@
-import { classify } from "./classify.js";
+import { classify, transcribe } from "./classify.js";
 
 const API = "https://api.telegram.org";
+const MAX_TRANSCRIBE_SECONDS = 300;
 
 export async function tg(env, method, payload) {
   const r = await fetch(`${API}/bot${env.TELEGRAM_TOKEN}/${method}`, {
@@ -60,23 +61,46 @@ async function handleMessage(msg, env) {
   const file = pickFile(msg);
   const caption = (msg.caption || msg.text || "").trim() || null;
 
-  const cls = file && !caption ? { kind: "material", priority: "normal", category: null, due_date: null }
-                               : await classify(env, caption || text);
+  let cls;
+  let effectiveText = caption || text || null;
+  let transcriptNote = "";
+  let preBuffer = null;
+
+  if (file?.isAudio && !caption && (file.duration ?? 0) <= MAX_TRANSCRIBE_SECONDS) {
+    // Try to transcribe; fail-safe: if anything goes wrong, fall back to material/no-text
+    preBuffer = await fetchTelegramFile(env, file.file_id);
+    if (preBuffer) {
+      const transcript = await transcribe(env, preBuffer);
+      if (transcript) {
+        effectiveText = transcript;
+        cls = await classify(env, transcript);
+        transcriptNote = `\n🎙 "${transcript.slice(0, 150)}"`;
+      }
+    }
+    if (!cls) {
+      cls = { kind: "material", priority: "normal", category: null, due_date: null };
+      effectiveText = null;
+    }
+  } else {
+    cls = file && !caption
+      ? { kind: "material", priority: "normal", category: null, due_date: null }
+      : await classify(env, caption || text);
+  }
 
   const res = await env.DB.prepare(
     "INSERT INTO items (kind, text, category, priority, due_date) VALUES (?, ?, ?, ?, ?)"
-  ).bind(cls.kind, caption || text || null, cls.category, cls.priority, cls.due_date).run();
+  ).bind(cls.kind, effectiveText, cls.category, cls.priority, cls.due_date).run();
   const id = res.meta.last_row_id;
 
   let fileNote = "";
   if (file) {
-    const saved = await saveAttachment(env, id, file);
+    const saved = await saveAttachment(env, id, file, preBuffer);
     fileNote = saved ? "\n📎 archivo guardado" : "\n⚠️ no pude descargar el archivo";
   }
 
   await tg(env, "sendMessage", {
     chat_id: chatId,
-    text: `📥 Guardada #${id}\n${summaryLine(cls)}${fileNote}`,
+    text: `📥 Guardada #${id}\n${summaryLine(cls)}${fileNote}${transcriptNote}`,
     reply_markup: itemKeyboard(id),
   });
 }
@@ -86,19 +110,30 @@ function pickFile(msg) {
     return { file_id: msg.photo[msg.photo.length - 1].file_id, mime: "image/jpeg" };
   }
   if (msg.document) return { file_id: msg.document.file_id, mime: msg.document.mime_type || "application/octet-stream" };
-  if (msg.voice) return { file_id: msg.voice.file_id, mime: "audio/ogg" };
-  if (msg.audio) return { file_id: msg.audio.file_id, mime: msg.audio.mime_type || "audio/mpeg" };
+  if (msg.voice) return { file_id: msg.voice.file_id, mime: "audio/ogg", isAudio: true, duration: msg.voice.duration ?? 0 };
+  if (msg.audio) return { file_id: msg.audio.file_id, mime: msg.audio.mime_type || "audio/mpeg", isAudio: true, duration: msg.audio.duration ?? 0 };
   if (msg.video) return { file_id: msg.video.file_id, mime: "video/mp4" };
   return null;
 }
 
-async function saveAttachment(env, itemId, file) {
-  const info = await tg(env, "getFile", { file_id: file.file_id });
-  if (!info.ok) return false;
-  const r = await fetch(`${API}/file/bot${env.TELEGRAM_TOKEN}/${info.result.file_path}`);
-  if (!r.ok) return false;
+async function fetchTelegramFile(env, file_id) {
+  try {
+    const info = await tg(env, "getFile", { file_id });
+    if (!info.ok) return null;
+    const r = await fetch(`${API}/file/bot${env.TELEGRAM_TOKEN}/${info.result.file_path}`);
+    if (!r.ok) return null;
+    return await r.arrayBuffer();
+  } catch (e) {
+    console.error("fetchTelegramFile error:", e?.message || e);
+    return null;
+  }
+}
+
+async function saveAttachment(env, itemId, file, preBuffer) {
+  const buffer = preBuffer ?? await fetchTelegramFile(env, file.file_id);
+  if (!buffer) return false;
   const key = `att/${crypto.randomUUID()}`;
-  await env.FILES.put(key, await r.arrayBuffer(), { metadata: { mime: file.mime } });
+  await env.FILES.put(key, buffer, { metadata: { mime: file.mime } });
   await env.DB.prepare("INSERT INTO attachments (item_id, r2_key, mime) VALUES (?, ?, ?)")
     .bind(itemId, key, file.mime).run();
   return true;

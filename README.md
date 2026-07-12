@@ -99,9 +99,13 @@ schema.sql        esquema D1
 | R2 | 10 GB almacenamiento | años de fotos |
 | Workers AI | ~10.000 neuronas/día | ~100 clasificaciones/día posibles |
 
+## Funciones adicionales (implementadas 2026-07-12)
+
+- **Transcripción de audios con Whisper** — notas de voz cortas (≤5 min) se transcriben (`@cf/openai/whisper-large-v3-turbo`, gratis en Workers AI) y se clasifican igual que un mensaje de texto. Si falla, cae a "material" como antes.
+- **Búsqueda en el dashboard** — campo de búsqueda bajo el quick-add, filtra todo (pendientes y hechas, cualquier tipo) por texto y categoría.
+- **Pestaña de categorías** — quinta tab "🏷 Cats", agrupa lo pendiente por categoría con contadores y grupos colapsables.
+- Compartir directo desde iOS al bot — ya funciona sin cambios: Compartir → Telegram → tu bot.
+
 ## Ideas futuras (no en v1)
 
-- Transcribir audios con Whisper (también gratis en Workers AI)
-- Búsqueda en el dashboard
-- Pestaña de categorías/proyectos
-- Compartir directo desde iOS al bot (ya funciona: Compartir → Telegram → tu bot)
+- Dominio propio — ver sección "(Opcional) Tu dominio" más arriba, deliberadamente sin activar por defecto.

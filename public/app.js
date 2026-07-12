@@ -5,6 +5,8 @@
   let items = [];
   let tab = "tareas";
   let expandedId = null;
+  let query = "";
+  let collapsedCats = new Set();
 
   const TODAY = new Date().toISOString().slice(0, 10);
 
@@ -48,10 +50,16 @@
 
   // ---------- render ----------
   function visibleItems() {
+    if (query) {
+      const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      const q = norm(query);
+      return items.filter((i) => norm(i.text).includes(q) || norm(i.category).includes(q));
+    }
     if (tab === "hechas") return items.filter((i) => i.status === "hecha");
     const pend = items.filter((i) => i.status === "pendiente");
     if (tab === "tareas") return pend.filter((i) => i.kind === "tarea");
     if (tab === "notas") return pend.filter((i) => i.kind === "nota");
+    if (tab === "categorias") return pend;
     return pend.filter((i) => i.kind === "material");
   }
 
@@ -65,7 +73,7 @@
       return;
     }
 
-    if (tab === "tareas") {
+    if (tab === "tareas" && !query) {
       const groups = [
         ["🔥 Urgente", vis.filter((i) => i.priority === "urgente")],
         ["📋 Pendientes", vis.filter((i) => i.priority === "normal")],
@@ -78,6 +86,33 @@
         h.textContent = title;
         list.appendChild(h);
         arr.forEach((i) => list.appendChild(renderItem(i)));
+      }
+    } else if (tab === "categorias" && !query) {
+      const grouped = new Map();
+      for (const item of vis) {
+        const key = (item.category || "").trim() || "__none__";
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(item);
+      }
+      const sortedKeys = [...grouped.keys()].sort((a, b) => {
+        if (a === "__none__") return 1;
+        if (b === "__none__") return -1;
+        return a.localeCompare(b);
+      });
+      for (const key of sortedKeys) {
+        const arr = grouped.get(key);
+        const label = key === "__none__" ? "Sin categoría" : key;
+        const collapsed = collapsedCats.has(key);
+        const h = document.createElement("div");
+        h.className = "group-title group-title--clickable";
+        h.innerHTML = `<span class="group-chevron">${collapsed ? "▸" : "▾"}</span> 🏷 ${esc(label)} <span class="group-count">(${arr.length})</span>`;
+        h.addEventListener("click", () => {
+          if (collapsedCats.has(key)) collapsedCats.delete(key);
+          else collapsedCats.add(key);
+          render();
+        });
+        list.appendChild(h);
+        if (!collapsed) arr.forEach((i) => list.appendChild(renderItem(i)));
       }
     } else {
       vis.forEach((i) => list.appendChild(renderItem(i)));
@@ -95,7 +130,13 @@
       meta.push(`<span class="chip ${cls}">${label}</span>`);
     }
     if (item.category) meta.push(`<span class="chip">🏷 ${esc(item.category)}</span>`);
-    if (tab !== "tareas" && item.kind === "tarea") meta.push(`<span class="chip">📌</span>`);
+    const showAllKinds = query || tab === "categorias";
+    if (showAllKinds) {
+      const kindIcon = { tarea: "📌", nota: "📝", material: "📎" };
+      if (kindIcon[item.kind]) meta.push(`<span class="chip">${kindIcon[item.kind]}</span>`);
+    } else if (tab !== "tareas" && item.kind === "tarea") {
+      meta.push(`<span class="chip">📌</span>`);
+    }
 
     const thumbs = (item.attachments || []).map((a) => {
       const src = `/files/${encodeURIComponent(a.r2_key)}?t=${encodeURIComponent(token)}`;
@@ -200,6 +241,11 @@
       expandedId = null;
       render();
     });
+  });
+
+  $("#search-input").addEventListener("input", (e) => {
+    query = e.target.value.trim();
+    render();
   });
 
   $("#login-btn").addEventListener("click", async () => {

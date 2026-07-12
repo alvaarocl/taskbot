@@ -1,5 +1,5 @@
 // Service worker mínimo: cachea el shell de la app, la API siempre va a red.
-const CACHE = "taskbot-v1";
+const CACHE = "taskbot-v2";
 const SHELL = ["/", "/style.css", "/app.js", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (e) => {

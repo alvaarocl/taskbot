@@ -54,3 +54,26 @@ export async function classify(env, text) {
     return fallback;
   }
 }
+
+export async function transcribe(env, arrayBuffer) {
+  try {
+    // Convert to base64 in 32 KB chunks — a single spread over large buffers blows the call stack
+    const bytes = new Uint8Array(arrayBuffer);
+    const CHUNK = 32 * 1024;
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    const base64 = btoa(binary);
+
+    const res = await env.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: base64 });
+
+    // Shape may vary across model versions — extract defensively
+    const text = res?.text ?? res?.response ?? res?.choices?.[0]?.message?.content ?? null;
+    if (typeof text !== "string" || !text.trim()) return null;
+    return text.trim();
+  } catch (e) {
+    console.error("transcribe error:", e?.message || e);
+    return null;
+  }
+}
