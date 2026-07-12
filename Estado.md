@@ -1,6 +1,6 @@
 # Estado — taskbot
 
-**Última actualización:** 2026-07-12
+**Última actualización:** 2026-07-12 (sesión 2)
 
 ## ✅ MVP completo y verificado en producción
 
@@ -32,11 +32,24 @@
 - Limitaciones conocidas (aceptadas): solo lectura y de una dirección (taskbot → Calendario, no al revés); refresco no instantáneo, lo controla Apple
 - Falta confirmar en el propio iPhone que la suscripción se ve bien con una tarea real de fecha próxima
 
+## ✅ Búsqueda y vista de categorías — implementado y desplegado 2026-07-12 (sesión 2)
+
+- **Búsqueda client-side:** `#search-input` en el header (bajo el quick-add). Filtra globalmente (pendientes + hechas, cualquier kind) sobre `text` y `category` con normalización NFD (ignora acentos/mayúsculas). Cuando hay query activa, se muestra lista plana (sin agrupado por prioridad) y cada item lleva chip de su kind (📌/📝/📎).
+- **Tab "🏷 Cats":** quinta pestaña. Agrupa items pendientes de cualquier kind por categoría, orden alfabético, "Sin categoría" al final. Grupos colapsables (▸/▾) con contador. Items muestran chip de kind.
+- **Service worker:** bumpeado a `taskbot-v2` para forzar refresco del shell cacheado.
+
+## ✅ Transcripción de audios con Whisper — implementado y desplegado 2026-07-12 (sesión 2)
+
+- Notas de voz/audio de Telegram (≤5 min, sin caption) se transcriben con `@cf/openai/whisper-large-v3-turbo` (Workers AI, gratis) y el transcript pasa por el mismo clasificador que un mensaje de texto (detecta tarea/nota, prioridad, categoría, fecha).
+- Diseño fail-safe: si la descarga o la transcripción fallan, cae al comportamiento anterior (`kind:"material"`, sin texto) — nunca se pierde ni se bloquea el guardado del audio.
+- El audio original se guarda siempre en KV (buffer reutilizado, no se descarga dos veces).
+- No se creó columna nueva en `items`: el transcript reutiliza la columna `text` existente.
+- **Pendiente de confirmar en producción:** que Workers AI acepta bien el formato OGG/Opus en el que Telegram manda las notas de voz, y que el shape de la respuesta del modelo coincide con lo esperado (`res.text`). Si falla, el fail-safe ya lo cubre (cae a material), pero falta una prueba real con una nota de voz.
+
 ## Pendiente menor
+- Probar en vivo una nota de voz real y confirmar que se transcribe y clasifica bien (ver punto anterior)
 - Comprobar el recordatorio matutino en vivo (llega solo a las ~8:00; nunca se ha visto disparar en producción)
+- Revisar visualmente en el iPhone que caben bien los 5 botones de la barra de tabs
 
 ## Ideas aparcadas (no hacer aún)
-- Whisper para transcribir audios (gratis en Workers AI)
-- Búsqueda en dashboard
-- Vista por categorías
-- Dominio propio (`routes` comentado en wrangler.toml)
+- Dominio propio (`routes` comentado en wrangler.toml) — se deja tal cual a propósito, no se ha tocado
