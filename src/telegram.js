@@ -1,4 +1,4 @@
-import { classify, transcribe } from "./classify.js";
+import { classify, transcribe, classifyAudioTranscript } from "./classify.js";
 
 const API = "https://api.telegram.org";
 const MAX_TRANSCRIBE_SECONDS = 300;
@@ -61,32 +61,34 @@ async function handleMessage(msg, env) {
   const file = pickFile(msg);
   const caption = (msg.caption || msg.text || "").trim() || null;
 
-  let cls;
-  let effectiveText = caption || text || null;
-  let transcriptNote = "";
-  let preBuffer = null;
-
   if (file?.isAudio && !caption && (file.duration ?? 0) <= MAX_TRANSCRIBE_SECONDS) {
-    // Try to transcribe; fail-safe: if anything goes wrong, fall back to material/no-text
-    preBuffer = await fetchTelegramFile(env, file.file_id);
-    if (preBuffer) {
-      const transcript = await transcribe(env, preBuffer);
-      if (transcript) {
-        effectiveText = transcript;
-        cls = await classify(env, transcript);
-        transcriptNote = `\n🎙 "${transcript.slice(0, 150)}"`;
-      }
+    const preBuffer = await fetchTelegramFile(env, file.file_id);
+    const transcript = preBuffer ? await transcribe(env, preBuffer) : null;
+
+    if (transcript) {
+      // Extrae 1 o varias tareas/notas reales del audio (ignora saludos y relleno).
+      // Si la extracción falla, cae al transcript completo como único item —
+      // nunca se pierde lo que se dijo en el audio.
+      let items = await classifyAudioTranscript(env, transcript);
+      if (!items) items = [{ text: transcript, ...(await classify(env, transcript)) }];
+      await saveAudioItems(env, chatId, file, preBuffer, transcript, items);
+      return;
     }
-    if (!cls) {
-      cls = { kind: "material", priority: "normal", category: null, due_date: null };
-      effectiveText = null;
-    }
-  } else {
-    cls = file && !caption
-      ? { kind: "material", priority: "normal", category: null, due_date: null }
-      : await classify(env, caption || text);
+
+    // No se pudo descargar o transcribir: cae a material, igual que antes
+    await saveSingleItem(env, chatId, file, null, {
+      kind: "material", priority: "normal", category: null, due_date: null,
+    }, preBuffer);
+    return;
   }
 
+  const cls = file && !caption
+    ? { kind: "material", priority: "normal", category: null, due_date: null }
+    : await classify(env, caption || text);
+  await saveSingleItem(env, chatId, file, caption || text || null, cls, null);
+}
+
+async function saveSingleItem(env, chatId, file, effectiveText, cls, preBuffer) {
   const res = await env.DB.prepare(
     "INSERT INTO items (kind, text, category, priority, due_date) VALUES (?, ?, ?, ?, ?)"
   ).bind(cls.kind, effectiveText, cls.category, cls.priority, cls.due_date).run();
@@ -100,9 +102,31 @@ async function handleMessage(msg, env) {
 
   await tg(env, "sendMessage", {
     chat_id: chatId,
-    text: `📥 Guardada #${id}\n${summaryLine(cls)}${fileNote}${transcriptNote}`,
+    text: `📥 Guardada #${id}\n${summaryLine(cls)}${fileNote}`,
     reply_markup: itemKeyboard(id),
   });
+}
+
+async function saveAudioItems(env, chatId, file, preBuffer, transcript, items) {
+  for (let idx = 0; idx < items.length; idx++) {
+    const cls = items[idx];
+    const res = await env.DB.prepare(
+      "INSERT INTO items (kind, text, category, priority, due_date) VALUES (?, ?, ?, ?, ?)"
+    ).bind(cls.kind, cls.text, cls.category, cls.priority, cls.due_date).run();
+    const id = res.meta.last_row_id;
+
+    // Cada item se lleva su propia copia del audio en KV (evita que borrar
+    // una tarea deje sin adjunto a las demás creadas del mismo audio).
+    const saved = await saveAttachment(env, id, file, preBuffer);
+    const fileNote = saved ? "\n📎 archivo guardado" : "\n⚠️ no pude descargar el archivo";
+    const prefix = idx === 0 ? `🎙 "${transcript.slice(0, 150)}"\n\n` : "";
+
+    await tg(env, "sendMessage", {
+      chat_id: chatId,
+      text: `${prefix}📥 Guardada #${id}\n${summaryLine(cls)}${fileNote}`,
+      reply_markup: itemKeyboard(id),
+    });
+  }
 }
 
 function pickFile(msg) {

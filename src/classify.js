@@ -55,6 +55,76 @@ export async function classify(env, text) {
   }
 }
 
+const MAX_AUDIO_ITEMS = 8;
+
+// Toma una transcripción de audio hablado (con saludos/muletillas/relleno) y
+// extrae de ahí 1 o varias tareas/notas reales, ya limpias. Si falla o la
+// respuesta no es un array usable, devuelve null (el caller cae al transcript
+// completo como único item, nunca se pierde el audio ni el texto).
+export async function classifyAudioTranscript(env, text) {
+  if (!text || !text.trim()) return null;
+
+  try {
+    const now = new Date();
+    const hoy = now.toISOString().slice(0, 10);
+    const dia = DIAS[now.getUTCDay()];
+
+    const res = await env.AI.run("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
+      messages: [
+        {
+          role: "system",
+          content:
+            `Eres un asistente que limpia transcripciones de notas de voz habladas de forma natural ` +
+            `(con saludos, muletillas y relleno que hay que ignorar) y extrae de ahí las tareas o notas ` +
+            `reales que el usuario quiere guardar. Hoy es ${dia}, ${hoy}.\n` +
+            `El audio puede contener UNA o VARIAS cosas distintas a guardar (ej: "recuérdame llamar a Juan ` +
+            `y también comprar leche mañana" son DOS items). Ignora saludos y frases de relleno tipo ` +
+            `"esto es una prueba".\n` +
+            `Responde SOLO con un array JSON, sin explicaciones, donde cada elemento tiene:\n` +
+            `- "text": el contenido limpio y conciso de ESE item (sin relleno ni saludos), como si el ` +
+            `usuario lo hubiera escrito directamente\n` +
+            `- "kind": "tarea" (algo que hay que hacer), "nota" (información a recordar) o "material"\n` +
+            `- "priority": "urgente", "normal", o "algun_dia"\n` +
+            `- "category": contexto corto en minúsculas o null\n` +
+            `- "due_date": fecha límite en formato YYYY-MM-DD si se menciona, o null\n` +
+            `Ejemplo: [{"text":"Llamar a Juan","kind":"tarea","priority":"normal","category":null,"due_date":null},` +
+            `{"text":"Comprar leche","kind":"tarea","priority":"normal","category":null,"due_date":"2026-07-13"}]\n` +
+            `Si no hay nada accionable que extraer, devuelve un único item usando el texto completo tal cual.`,
+        },
+        { role: "user", content: text.slice(0, 2000) },
+      ],
+      max_tokens: 500,
+    });
+
+    let out = res?.response ?? res?.choices?.[0]?.message?.content ?? res;
+    let arr;
+    if (Array.isArray(out)) {
+      arr = out;
+    } else {
+      const match = String(out || "").match(/\[[\s\S]*\]/);
+      if (!match) return null;
+      arr = JSON.parse(match[0]);
+    }
+    if (!Array.isArray(arr) || !arr.length) return null;
+
+    const items = arr
+      .map((j) => ({
+        text: typeof j.text === "string" ? j.text.trim().slice(0, 500) : "",
+        kind: ["tarea", "nota", "material"].includes(j.kind) ? j.kind : "tarea",
+        priority: ["urgente", "normal", "algun_dia"].includes(j.priority) ? j.priority : "normal",
+        category: typeof j.category === "string" && j.category ? j.category.slice(0, 40).toLowerCase() : null,
+        due_date: /^\d{4}-\d{2}-\d{2}$/.test(j.due_date || "") ? j.due_date : null,
+      }))
+      .filter((it) => it.text)
+      .slice(0, MAX_AUDIO_ITEMS);
+
+    return items.length ? items : null;
+  } catch (e) {
+    console.error("classifyAudioTranscript error:", e?.message || e);
+    return null;
+  }
+}
+
 export async function transcribe(env, arrayBuffer) {
   try {
     // Convert to base64 in 32 KB chunks — a single spread over large buffers blows the call stack
