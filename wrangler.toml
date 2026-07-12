@@ -1,0 +1,32 @@
+# taskbot — bot de Telegram + dashboard PWA en Cloudflare Workers
+name = "taskbot"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# Dashboard PWA (archivos estáticos en /public)
+[assets]
+directory = "public"
+binding = "ASSETS"
+run_worker_first = ["/api/*", "/webhook", "/files/*"]
+
+# Base de datos (rellenar database_id tras `wrangler d1 create taskbot`)
+[[d1_databases]]
+binding = "DB"
+database_name = "taskbot"
+database_id = "c5a351f4-2f41-4181-aa04-f310dcda4318"
+
+# Almacenamiento de imágenes/archivos (KV: gratis sin tarjeta, 1 GB)
+[[kv_namespaces]]
+binding = "FILES"
+id = "ec280c8780cc45d4aaf3e1007b9b6959"
+
+# IA gratuita de Cloudflare para clasificar
+[ai]
+binding = "AI"
+
+# Recordatorio diario. Cron en UTC: 06:00 UTC = 08:00 Madrid (verano) / 07:00 (invierno)
+[triggers]
+crons = ["0 6 * * *"]
+
+# Para usar tu dominio, descomenta y ajusta:
+# routes = [{ pattern = "tareas.tudominio.com", custom_domain = true }]
