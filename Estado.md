@@ -40,14 +40,18 @@
 
 ## ✅ Transcripción de audios con Whisper — implementado y desplegado 2026-07-12 (sesión 2)
 
-- Notas de voz/audio de Telegram (≤5 min, sin caption) se transcriben con `@cf/openai/whisper-large-v3-turbo` (Workers AI, gratis) y el transcript pasa por el mismo clasificador que un mensaje de texto (detecta tarea/nota, prioridad, categoría, fecha).
-- Diseño fail-safe: si la descarga o la transcripción fallan, cae al comportamiento anterior (`kind:"material"`, sin texto) — nunca se pierde ni se bloquea el guardado del audio.
-- El audio original se guarda siempre en KV (buffer reutilizado, no se descarga dos veces).
-- No se creó columna nueva en `items`: el transcript reutiliza la columna `text` existente.
-- **Pendiente de confirmar en producción:** que Workers AI acepta bien el formato OGG/Opus en el que Telegram manda las notas de voz, y que el shape de la respuesta del modelo coincide con lo esperado (`res.text`). Si falla, el fail-safe ya lo cubre (cae a material), pero falta una prueba real con una nota de voz.
+- Notas de voz/audio de Telegram (≤5 min, sin caption) se transcriben con `@cf/openai/whisper-large-v3-turbo` (Workers AI, gratis).
+- **Probado en producción por Álvaro:** la transcripción funciona bien (OGG/Opus de Telegram se digiere sin problema).
+- El audio original se guarda siempre en KV, con una copia independiente por cada tarea creada (para que borrar una no deje sin adjunto a las demás).
+- No se creó columna nueva en `items`: el texto reutiliza la columna `text` existente.
+
+### Ajuste 2026-07-12 (sesión 3): extracción de tareas, no transcript literal
+Problema detectado: el transcript se guardaba palabra por palabra (con saludos y relleno, ej. "hola este es un audio de prueba mañana de entrenamiento a las 9" quedaba entero como texto de la tarea) y nunca se separaba en varias tareas si el audio mencionaba más de una cosa.
+
+Solución: nueva función `classifyAudioTranscript()` en `src/classify.js` — la IA extrae del transcript 1 o varias tareas/notas ya limpias (sin relleno ni saludos), cada una clasificada por separado (kind/prioridad/categoría/fecha). Si la extracción falla, cae al transcript completo como único item (fail-safe, nunca se pierde el audio). Cada tarea creada se envía como un mensaje de confirmación independiente con sus propios botones; el transcript original se muestra una sola vez, en el primer mensaje.
 
 ## Pendiente menor
-- Probar en vivo una nota de voz real y confirmar que se transcribe y clasifica bien (ver punto anterior)
+- Probar en vivo un audio con VARIAS tareas mezcladas (ej. "recuérdame llamar a Juan y también comprar leche mañana") y confirmar que las separa bien
 - Comprobar el recordatorio matutino en vivo (llega solo a las ~8:00; nunca se ha visto disparar en producción)
 - Revisar visualmente en el iPhone que caben bien los 5 botones de la barra de tabs
 
