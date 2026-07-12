@@ -1,0 +1,17 @@
+# Copia este archivo a .dev.vars para desarrollo local.
+# En producción se configuran con: npx wrangler secret put NOMBRE
+
+# Token del bot que te da @BotFather
+TELEGRAM_TOKEN=123456:ABC...
+
+# Cadena aleatoria que tú inventas; se usa al registrar el webhook
+TG_WEBHOOK_SECRET=una-cadena-aleatoria-larga
+
+# Contraseña del dashboard (la que escribirás en la PWA la primera vez)
+DASH_TOKEN=otra-cadena-aleatoria-larga
+
+# Token del feed de calendario (.ics), distinto de DASH_TOKEN a propósito
+CAL_TOKEN=otra-cadena-aleatoria-larga-mas
+
+# Tu chat id de Telegram. El bot te lo dice la primera vez que le escribas.
+OWNER_CHAT_ID=

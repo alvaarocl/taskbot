@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0f14" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Taskbot</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icon.svg" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="login" class="login hidden">
+    <h1>📥 Taskbot</h1>
+    <p>Introduce tu clave de acceso</p>
+    <input id="token-input" type="password" placeholder="DASH_TOKEN" autocomplete="current-password" />
+    <button id="login-btn">Entrar</button>
+    <p id="login-error" class="error hidden">Clave incorrecta</p>
+  </div>
+
+  <div id="app" class="hidden">
+    <header>
+      <form id="quick-add">
+        <input id="add-input" type="text" placeholder="＋ Añadir tarea o nota…" autocomplete="off" />
+      </form>
+    </header>
+
+    <main id="list"></main>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="tareas">📌 Tareas</button>
+      <button class="tab" data-tab="notas">📝 Notas</button>
+      <button class="tab" data-tab="material">📎 Material</button>
+      <button class="tab" data-tab="hechas">✅ Hechas</button>
+    </nav>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
