@@ -9,7 +9,7 @@ export async function handleCalendar(url, env) {
   }
 
   const { results } = await env.DB.prepare(
-    `SELECT id, kind, text, priority, due_date, start_at, end_at, location FROM items
+    `SELECT id, kind, text, priority, due_date, start_at, end_at, location, url FROM items
      WHERE status='pendiente' AND kind IN ('tarea','evento') AND (start_at IS NOT NULL OR due_date IS NOT NULL)
      ORDER BY COALESCE(start_at, due_date)`
   ).all();
@@ -21,11 +21,11 @@ export async function handleCalendar(url, env) {
       return {
         ...base,
         date: it.start_at.slice(0, 10), start: it.start_at.slice(11, 16), end: it.end_at.slice(11, 16),
-        description: it.kind === "tarea" && it.due_date ? `Fecha límite: ${it.due_date}` : null,
+        description: [it.kind === "tarea" && it.due_date ? `Fecha límite: ${it.due_date}` : null, it.url].filter(Boolean).join("\n") || null,
         alarmMin: it.kind === "evento" ? 15 : null,
       };
     }
-    return { ...base, date: it.due_date, allDay: true };
+    return { ...base, date: it.due_date, allDay: true, description: it.url };
   });
 
   return icsResponse(buildCalendar("Taskbot", events));

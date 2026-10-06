@@ -32,6 +32,8 @@ taskbot conoce todo el horario (clases UC3M + rutina + eventos + exámenes) y co
 | "Este sábado no hay partido" / "no hay clase de IA el martes" | ❌ quita ese partido, entreno o clase (↩️ Deshacer) |
 | "Partido el sábado 17 a las 11 en Illescas" | sustituye al bloque provisional de partidos de ese sábado |
 
+Aula Global (cada 3 h): las entregas y cuestionarios pendientes se convierten en tareas con hueco; al entregarlos se marcan hechas; material nuevo → aviso. Token: `~/obsidian/aulaglobal/login.mjs`.
+
 Cada 3 h se relee la web de horarios de la UC3M (avisa por Telegram de cambios de aula, sesiones nuevas o quitadas) y se recolocan las tareas que se pasaron o que ahora chocan.
 
 ### Calendarios suscritos (Apple Calendar, solo lectura)
@@ -126,6 +128,7 @@ src/rutina.js     rutina semanal (baloncesto) y calendario escolar
 src/exams.js      exámenes que sustituyen a la clase
 src/overrides.js  lo fijo ajustado con exámenes y cancelaciones
 src/calendar.js   feeds .ics
+src/aulaglobal.js entregas, cuestionarios y material nuevo de Aula Global
 public/           dashboard PWA (vanilla JS, sin dependencias)
 schema.sql        esquema D1
 ```

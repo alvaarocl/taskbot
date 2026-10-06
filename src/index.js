@@ -3,9 +3,11 @@ import { handleApi } from "./api.js";
 import { runReminders, notifyReplan } from "./reminders.js";
 import { handleCalendar, handleScheduleFeed } from "./calendar.js";
 import { syncUc3m } from "./sync.js";
+import { syncAulaGlobal } from "./aulaglobal.js";
 
-// Debe coincidir con el segundo cron de wrangler.toml.
+// Deben coincidir con los crons de wrangler.toml.
 const SYNC_CRON = "30 */3 * * *";
+const AULA_CRON = "15 */3 * * *";
 
 export default {
   async fetch(request, env, ctx) {
@@ -21,6 +23,7 @@ export default {
   async scheduled(event, env, ctx) {
     // Primero el horario de la UC3M; luego se recolocan las tareas que ahora choquen.
     if (event.cron === SYNC_CRON) ctx.waitUntil(syncUc3m(env).finally(() => notifyReplan(env)));
+    else if (event.cron === AULA_CRON) ctx.waitUntil(syncAulaGlobal(env));
     else ctx.waitUntil(runReminders(env));
   },
 };
