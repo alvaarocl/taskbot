@@ -1,0 +1,54 @@
+name: TaskbotWidget
+options:
+  bundleIdPrefix: com.alvarocarpintero
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: 8K958UG785
+targets:
+  Taskbot:
+    type: application
+    platform: macOS
+    sources:
+      - path: TaskbotApp
+      - path: Shared/CompleteTaskIntent.swift
+    dependencies:
+      - target: TaskbotWidgetExtension
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alvarocarpintero.taskbot
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Taskbot — Notas
+        INFOPLIST_KEY_CFBundleVersion: "1"
+        INFOPLIST_KEY_CFBundleShortVersionString: "1.0"
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSAppleEventsUsageDescription: Taskbot actualiza una nota con tus tareas pendientes.
+        CODE_SIGN_ENTITLEMENTS: TaskbotApp/Taskbot.entitlements
+        CODE_SIGN_STYLE: Automatic
+        REGISTER_APP_GROUPS: YES
+        ENABLE_APP_SANDBOX: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+  TaskbotWidgetExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: TaskbotWidget
+      - path: Shared/CompleteTaskIntent.swift
+    info:
+      path: TaskbotWidget/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alvarocarpintero.taskbot.macoswidget
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_KEY_CFBundleDisplayName: Taskbot Widget
+        CODE_SIGN_ENTITLEMENTS: TaskbotWidget/TaskbotWidget.entitlements
+        CODE_SIGN_STYLE: Automatic
+        REGISTER_APP_GROUPS: YES
+        ENABLE_APP_SANDBOX: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
