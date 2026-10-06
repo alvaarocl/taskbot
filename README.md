@@ -20,6 +20,15 @@ Cron diario 8:00 ──▶ bot te escribe: vence hoy / atrasado / lleva 2 semana
 - El bot confirma cada captura con botones: ✅ Hecha · 🔥 Urgente · 🌙 Algún día · 🗑 Borrar.
 - Comandos: `/hoy` y `/manana` (agenda con huecos libres), `/semana` (huecos de 7 días), `/lista` (pendientes), `/planificar` (coloca las tareas sin hueco), `/ayuda`.
 
+## Asistente
+
+Cada texto o audio pasa por `src/assistant.js`, que decide (Workers AI, Llama 3.3 70B):
+- **pregunta** → responde con la agenda real del rango de días que haga falta, exámenes, tareas, avisos y notas de Aula Global. Recuerda los últimos mensajes (KV `chat:history`, 3 h) para seguir la conversación ("¿y el viernes?").
+- **editar** → mueve, renombra o cambia la fecha límite de una tarea, evento o examen, con botón ↩️ Deshacer (estado anterior en KV `undo:<id>`, 2 días). Mover un examen devuelve la clase a ese día.
+- **borrar** → pide confirmación. **hecho** → marca hecho (con ↩️).
+- **apuntar** → el flujo de siempre (`classify` → evento/tarea/examen/cancelación).
+Si algo falla, el bot lo dice en vez de quedarse callado.
+
 ## Agenda: el "cerebro"
 
 taskbot conoce todo el horario (clases UC3M + rutina + eventos + exámenes) y coloca cada cosa:
@@ -32,9 +41,11 @@ taskbot conoce todo el horario (clases UC3M + rutina + eventos + exámenes) y co
 | "Este sábado no hay partido" / "no hay clase de IA el martes" | ❌ quita ese partido, entreno o clase (↩️ Deshacer) |
 | "Partido el sábado 17 a las 11 en Illescas" | sustituye al bloque provisional de partidos de ese sábado |
 
-Aula Global (cada 3 h): las entregas y cuestionarios pendientes se convierten en tareas con hueco; al entregarlos se marcan hechas; material nuevo → aviso. Token: `~/obsidian/aulaglobal/login.mjs`.
+Aula Global: **cada hora** entregas y cuestionarios pendientes → tareas con hueco, entregado → hecha, cambio de fecha → aviso, recordatorios 24 h y 3 h antes, avisos y foros de los profesores → Telegram; **cada 3 h** material nuevo y notas publicadas → aviso. Token: `~/obsidian/aulaglobal/login.mjs`.
 
-Cada 3 h se relee la web de horarios de la UC3M (avisa por Telegram de cambios de aula, sesiones nuevas o quitadas) y se recolocan las tareas que se pasaron o que ahora chocan.
+Crons (la cuenta gratuita permite 5 en total entre todos los workers; aquí 3): `0 6 * * *` buenos días · `15 * * * *` Aula Global · `45 * * * *` horario UC3M (hora UTC % 3 = 0) o material y notas (% 3 = 1).
+
+Cada 3 h (minuto 45) se relee la web de horarios de la UC3M (avisa por Telegram de cambios de aula, sesiones nuevas o quitadas) y se recolocan las tareas que se pasaron o que ahora chocan.
 
 ### Calendarios suscritos (Apple Calendar, solo lectura)
 
@@ -130,7 +141,8 @@ src/rutina.js     rutina semanal (baloncesto) y calendario escolar
 src/exams.js      exámenes que sustituyen a la clase
 src/overrides.js  lo fijo ajustado con exámenes y cancelaciones
 src/calendar.js   feeds .ics
-src/aulaglobal.js entregas, cuestionarios y material nuevo de Aula Global
+src/aulaglobal.js Aula Global: entregas, recordatorios, avisos, material y notas
+src/assistant.js  asistente: preguntas, cambios y deshacer
 public/           dashboard PWA (vanilla JS, sin dependencias)
 schema.sql        esquema D1
 ```

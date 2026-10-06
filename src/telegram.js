@@ -2,6 +2,7 @@ import { classify, transcribe, classifyAudioTranscript } from "./classify.js";
 import { loadSessions } from "./sync.js";
 import { replacedBy } from "./exams.js";
 import { cancellationEffect } from "./overrides.js";
+import { assistant, undoChange } from "./assistant.js";
 import {
   agendaText, weekFreeText, scheduleTask, conflictsFor, nowMadrid, dayLabel,
   addDays, toMin, fromMin,
@@ -30,8 +31,17 @@ export async function handleWebhook(request, env, ctx) {
 }
 
 async function processUpdate(update, env) {
-  if (update.callback_query) return handleCallback(update.callback_query, env);
-  if (update.message) return handleMessage(update.message, env);
+  try {
+    if (update.callback_query) return await handleCallback(update.callback_query, env);
+    if (update.message) return await handleMessage(update.message, env);
+  } catch (e) {
+    console.error("update error:", e?.stack || e);
+    const chatId = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
+    if (chatId && String(chatId) === String(env.OWNER_CHAT_ID)) {
+      await tg(env, "sendMessage", { chat_id: chatId, text: `⚠️ Algo ha fallado: ${String(e?.message || e).slice(0, 200)}
+Prueba otra vez; si sigue, dímelo.` });
+    }
+  }
 }
 
 async function handleMessage(msg, env) {
@@ -49,13 +59,26 @@ async function handleMessage(msg, env) {
   const text = (msg.text || "").trim();
 
   if (text === "/start" || text === "/ayuda") {
+    // Menú de comandos de Telegram (el botón "/" junto al teclado).
+    await tg(env, "setMyCommands", {
+      commands: [
+        { command: "hoy", description: "Agenda de hoy y huecos libres" },
+        { command: "manana", description: "Agenda de mañana" },
+        { command: "semana", description: "Huecos libres de 7 días" },
+        { command: "lista", description: "Tareas pendientes" },
+        { command: "planificar", description: "Colocar tareas sin hueco" },
+        { command: "ayuda", description: "Qué puedo hacer" },
+      ],
+    });
     await tg(env, "sendMessage", {
       chat_id: chatId,
       text:
-        "📥 Mándame cualquier cosa y la guardo:\n" +
-        "• \"Reunión con Marco el jueves a las 17\" → evento en tu calendario\n" +
-        "• \"Hacer la práctica de SO antes del viernes\" → tarea, y te la coloco en un hueco libre\n" +
-        "• Notas, fotos, archivos, audios → guardados\n\n" +
+        "Soy tu asistente. Escríbeme o mándame un audio:\n\n" +
+        "❓ Pregúntame\n• \"¿Qué tengo mañana?\" · \"¿Cuándo es el parcial de SO?\"\n• \"¿Tengo hueco el jueves por la tarde?\" · \"¿Qué ha dicho el profe de IS?\"\n\n" +
+        "📥 Apunta\n• \"Reunión con Marco el jueves a las 17\" → evento\n• \"Hacer la práctica de SO antes del viernes\" → tarea en un hueco libre\n" +
+        "• \"Parcial de Cálculo el 16/11 a las 10:45\" → examen\n• \"Este sábado no hay partido\" → lo quita del calendario\n\n" +
+        "✏️ Cambia\n• \"El control de Cálculo lo pasan al 13 a las 10:45\"\n• \"Mueve la reunión con Marco a las 18\" · \"Borra la reunión del jueves\"\n• \"Ya entregué la práctica de EC\"\n\n" +
+        "Fotos, archivos y notas también se guardan.\n\n" +
         "Comandos:\n/hoy — tu agenda de hoy y huecos\n/manana — la de mañana\n" +
         "/semana — huecos libres de 7 días\n/lista — tareas pendientes\n" +
         "/planificar — coloca las tareas que aún no tienen hueco",
@@ -85,11 +108,16 @@ async function handleMessage(msg, env) {
 
   // Adjuntos: foto, documento, audio, vídeo
   const file = pickFile(msg);
+
+  // Texto: pregunta, cambio o algo que apuntar.
+  if (!file && text && !text.startsWith("/") && await assistant(env, chatId, text)) return;
   const caption = (msg.caption || msg.text || "").trim() || null;
 
   if (file?.isAudio && !caption && (file.duration ?? 0) <= MAX_TRANSCRIBE_SECONDS) {
     const preBuffer = await fetchTelegramFile(env, file.file_id);
     const transcript = preBuffer ? await transcribe(env, preBuffer) : null;
+
+    if (transcript && await assistant(env, chatId, transcript)) return;
 
     if (transcript) {
       // Extrae 1 o varias tareas/notas reales del audio (ignora saludos y relleno).
@@ -275,6 +303,10 @@ async function handleCallback(cb, env) {
        WHERE id=?`
     ).bind(id).run();
     notice = "🌙 Para algún día";
+  } else if (action === "undo") {
+    notice = await undoChange(env, id);
+  } else if (action === "keep") {
+    notice = "Vale, no lo borro";
   } else if (action === "mv") {
     const it = await env.DB.prepare("SELECT * FROM items WHERE id=?").bind(id).first();
     if (it?.kind === "tarea") {
@@ -294,7 +326,7 @@ async function handleCallback(cb, env) {
   }
 
   await tg(env, "answerCallbackQuery", { callback_query_id: cb.id, text: notice });
-  if (action === "done" || action === "del") {
+  if (action === "done" || action === "del" || action === "undo" || action === "keep") {
     await tg(env, "editMessageText", {
       chat_id: cb.message.chat.id,
       message_id: cb.message.message_id,

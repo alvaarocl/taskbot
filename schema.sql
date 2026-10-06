@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS items (
   end_at TEXT,
   duration_min INTEGER,                      -- duración del evento o estimación de la tarea
   location TEXT,
+  due_at TEXT,                               -- YYYY-MM-DDTHH:MM, hora exacta de la fecha límite (Aula Global)
   source TEXT,                               -- origen externo, p. ej. "ag:assign:123" (Aula Global)
   url TEXT
 );
@@ -36,3 +37,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_items_source ON items(source);
 -- Migración 2026-10-06 (BD ya creada):
 --   npx wrangler d1 execute taskbot --remote --file=migrations/2026-10-06-agenda.sql
 --   npx wrangler d1 execute taskbot --remote --file=migrations/2026-10-06-aulaglobal.sql
+--   npx wrangler d1 execute taskbot --remote --file=migrations/2026-10-07-due-at.sql

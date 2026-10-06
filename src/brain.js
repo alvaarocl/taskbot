@@ -49,8 +49,9 @@ export async function loadBusy(env, from, to, skipId = null) {
   const campus = new Map(); // fecha → [primera hora, última hora] de clase presencial
   const fixed = await fixedAgenda(env, from, to);
   for (const x of fixed.examEvents) {
-    if (x.allDay) continue;
-    busy.push({ date: x.date, start: x.start, end: x.end, label: x.summary, where: x.location?.replace(/^Aula | · UC3M Leganés$/g, ""), fixed: true });
+    const itemId = Number(x.uid.replace("exam-", ""));
+    if (x.allDay || itemId === skipId) continue;
+    busy.push({ date: x.date, start: x.start, end: x.end, label: x.summary, where: x.location?.replace(/^Aula | · UC3M Leganés$/g, ""), fixed: true, itemId });
   }
   for (const s of fixed.sessions) {
     busy.push({ date: s.date, start: s.start, end: s.end, label: `📚 ${s.subject} · ${typeLabel(s.type)}`, where: s.room });
