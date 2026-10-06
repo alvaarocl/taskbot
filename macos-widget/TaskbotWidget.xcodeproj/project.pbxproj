@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0A4A654A0427769CA3699953 /* CompleteTaskIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 228C3B56B947A08782336DF8 /* CompleteTaskIntent.swift */; };
+		0A7EE4411BC3BCA8B5879DB2 /* RemindersSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C636F65DADBE8046BD49D728 /* RemindersSync.swift */; };
 		504AFD76C2699BE9477DE1BD /* TaskbotWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F0666D87D7184575CF674F /* TaskbotWidget.swift */; };
 		AB8BEB1F11FA874F8E1C02BF /* TaskbotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664A67EC29AC9F85F8F7C9BC /* TaskbotApp.swift */; };
 		CB7C91E77F83DBF248923933 /* NotesSyncController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36790E2F9D1EAAE6524978B8 /* NotesSyncController.swift */; };
@@ -50,6 +51,7 @@
 		9191D1E5888F6DCDB2C8D644 /* TaskbotWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TaskbotWidget.entitlements; sourceTree = "<group>"; };
 		B397C5F786E418449228AF73 /* Taskbot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Taskbot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B5D7154ED7F7921F9B8363A5 /* SharedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSettings.swift; sourceTree = "<group>"; };
+		C636F65DADBE8046BD49D728 /* RemindersSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersSync.swift; sourceTree = "<group>"; };
 		F7574E588B3FD89461779E9F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -95,6 +97,7 @@
 			isa = PBXGroup;
 			children = (
 				36790E2F9D1EAAE6524978B8 /* NotesSyncController.swift */,
+				C636F65DADBE8046BD49D728 /* RemindersSync.swift */,
 				B5D7154ED7F7921F9B8363A5 /* SharedSettings.swift */,
 				78CA9E99F1FAC2C44816DB33 /* Taskbot.entitlements */,
 				664A67EC29AC9F85F8F7C9BC /* TaskbotApp.swift */,
@@ -196,6 +199,7 @@
 			files = (
 				0A4A654A0427769CA3699953 /* CompleteTaskIntent.swift in Sources */,
 				CB7C91E77F83DBF248923933 /* NotesSyncController.swift in Sources */,
+				0A7EE4411BC3BCA8B5879DB2 /* RemindersSync.swift in Sources */,
 				E5A56DD923473E4047EFB10A /* SharedSettings.swift in Sources */,
 				AB8BEB1F11FA874F8E1C02BF /* TaskbotApp.swift in Sources */,
 			);
@@ -226,6 +230,8 @@
 				INFOPLIST_KEY_CFBundleVersion = 1;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Taskbot actualiza una nota con tus tareas pendientes.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "Taskbot mantiene tus tareas en la lista \"Taskbot\" de Recordatorios y marca como hechas las que completes allí.";
+				INFOPLIST_KEY_NSRemindersUsageDescription = "Taskbot mantiene tus tareas en la lista \"Taskbot\" de Recordatorios.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -359,6 +365,8 @@
 				INFOPLIST_KEY_CFBundleVersion = 1;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Taskbot actualiza una nota con tus tareas pendientes.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "Taskbot mantiene tus tareas en la lista \"Taskbot\" de Recordatorios y marca como hechas las que completes allí.";
+				INFOPLIST_KEY_NSRemindersUsageDescription = "Taskbot mantiene tus tareas en la lista \"Taskbot\" de Recordatorios.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
