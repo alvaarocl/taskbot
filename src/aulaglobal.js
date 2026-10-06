@@ -141,7 +141,7 @@ async function notifyNewMaterial(env, courses, names) {
   if (blocks.length) {
     await tg(env, "sendMessage", {
       chat_id: env.OWNER_CHAT_ID,
-      text: `Material nuevo en Aula Global:\n\n${blocks.join("\n\n")}\n\nSe descarga solo en Documents/26.27/Aula Global.`.slice(0, 4000),
+      text: `Material nuevo en Aula Global:\n\n${blocks.join("\n\n")}\n\nSe descarga solo en Documents/26.27/<asignatura>.`.slice(0, 4000),
     });
   }
 }
