@@ -1,6 +1,6 @@
 import { classify } from "./classify.js";
 
-const EDITABLE = ["kind", "status", "text", "category", "priority", "due_date"];
+const EDITABLE = ["kind", "status", "text", "category", "priority", "due_date", "start_at", "end_at", "duration_min", "location"];
 
 export async function handleApi(request, env) {
   const url = new URL(request.url);

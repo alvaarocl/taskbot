@@ -1,4 +1,11 @@
 import { classify, transcribe, classifyAudioTranscript } from "./classify.js";
+import { loadSessions } from "./sync.js";
+import { replacedBy } from "./exams.js";
+import { cancellationEffect } from "./overrides.js";
+import {
+  agendaText, weekFreeText, scheduleTask, conflictsFor, nowMadrid, dayLabel,
+  addDays, toMin, fromMin,
+} from "./brain.js";
 
 const API = "https://api.telegram.org";
 const MAX_TRANSCRIBE_SECONDS = 300;
@@ -46,14 +53,33 @@ async function handleMessage(msg, env) {
       chat_id: chatId,
       text:
         "📥 Mándame cualquier cosa y la guardo:\n" +
-        "• Texto → tarea o nota (clasifico solo)\n" +
-        "• Fotos, archivos, audios → material guardado\n\n" +
-        "Comandos:\n/lista — pendientes\n/hoy — lo que vence hoy",
+        "• \"Reunión con Marco el jueves a las 17\" → evento en tu calendario\n" +
+        "• \"Hacer la práctica de SO antes del viernes\" → tarea, y te la coloco en un hueco libre\n" +
+        "• Notas, fotos, archivos, audios → guardados\n\n" +
+        "Comandos:\n/hoy — tu agenda de hoy y huecos\n/manana — la de mañana\n" +
+        "/semana — huecos libres de 7 días\n/lista — tareas pendientes\n" +
+        "/planificar — coloca las tareas que aún no tienen hueco",
     });
     return;
   }
-  if (text === "/lista" || text === "/hoy") {
-    await sendList(env, chatId, text === "/hoy");
+  if (text === "/lista") {
+    await sendList(env, chatId, false);
+    return;
+  }
+  if (text === "/hoy" || text === "/manana" || text === "/mañana") {
+    const { date } = nowMadrid();
+    await tg(env, "sendMessage", {
+      chat_id: chatId,
+      text: (await agendaText(env, text === "/hoy" ? date : addDays(date, 1))).slice(0, 4000),
+    });
+    return;
+  }
+  if (text === "/semana") {
+    await tg(env, "sendMessage", { chat_id: chatId, text: (await weekFreeText(env)).slice(0, 4000) });
+    return;
+  }
+  if (text === "/planificar") {
+    await planAll(env, chatId);
     return;
   }
 
@@ -88,11 +114,79 @@ async function handleMessage(msg, env) {
   await saveSingleItem(env, chatId, file, caption || text || null, cls, null);
 }
 
-async function saveSingleItem(env, chatId, file, effectiveText, cls, preBuffer) {
+// Guarda el item y, si es evento o tarea, le da hora en la agenda. Devuelve { id, agenda }.
+async function insertItem(env, rawText, cls) {
+  // En el calendario queda mejor el título limpio ("Reunión con Marco") que el mensaje entero.
+  const text = ["evento", "tarea", "examen", "cancelacion"].includes(cls.kind) && cls.title ? cls.title : rawText;
+  let start = null, end = null;
+  if ((cls.kind === "evento" || cls.kind === "examen") && cls.time) {
+    const dur = cls.duration_min || (cls.kind === "examen" ? 90 : 60);
+    start = `${cls.due_date}T${cls.time}`;
+    end = `${cls.due_date}T${fromMin(Math.min(toMin(cls.time) + dur, 23 * 60 + 59))}`;
+  }
   const res = await env.DB.prepare(
-    "INSERT INTO items (kind, text, category, priority, due_date) VALUES (?, ?, ?, ?, ?)"
-  ).bind(cls.kind, effectiveText, cls.category, cls.priority, cls.due_date).run();
+    `INSERT INTO items (kind, text, category, priority, due_date, start_at, end_at, duration_min, location)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(cls.kind, text, cls.category, cls.priority, cls.due_date, start, end,
+    cls.duration_min ?? null, cls.location ?? null).run();
   const id = res.meta.last_row_id;
+
+  let agenda = "";
+  try {
+    if (cls.kind === "examen") {
+      const replaced = start ? replacedBy({ text, start_at: start, end_at: end }, await loadSessions(env)) : [];
+      agenda = `\n📝 ${dayLabel(cls.due_date)}${start ? ` ${start.slice(11)}–${end.slice(11)}` : " (sin hora)"}` +
+        (replaced.length ? `\nEn el calendario sustituye a: ${replaced.map((s) => `${s.subject} ${s.start}–${s.end}`).join(", ")}` : "");
+    } else if (cls.kind === "cancelacion") {
+      const gone = await cancellationEffect(env, text, cls.due_date);
+      agenda = gone.length
+        ? `\n❌ Quitado del ${dayLabel(cls.due_date)}: ${gone.join(", ")}`
+        : `\n⚠️ No encuentro "${text}" el ${dayLabel(cls.due_date)}. Dime qué es (partido, entreno o la asignatura).`;
+    } else if (cls.kind === "evento") {
+      const hits = await conflictsFor(env, cls.due_date, start.slice(11), end.slice(11), id);
+      agenda = `\n📅 ${dayLabel(cls.due_date)} ${start.slice(11)}–${end.slice(11)}` +
+        (cls.location ? ` · ${cls.location}` : "") +
+        (hits.length ? `\n⚠️ Choca con: ${hits.map((h) => `${h.label} (${h.shown || h.start}–${h.shownEnd || h.end})`).join(", ")}` : "");
+    } else if (cls.kind === "tarea" && cls.priority !== "algun_dia" && text) {
+      agenda = await placeTask(env, { id, ...cls });
+    }
+  } catch (e) {
+    console.error("agenda error:", e?.message || e);
+  }
+  return { id, agenda };
+}
+
+async function placeTask(env, item, after = null) {
+  const { slot, late } = await scheduleTask(env, item, after);
+  if (!slot) return "\n🧠 No encuentro hueco libre en las próximas semanas";
+  return `\n🧠 Te la pongo el ${dayLabel(slot.date)} ${slot.start}–${slot.end}` +
+    (late ? `\n⚠️ No cabe antes de su fecha límite (${dayLabel(item.due_date)})` : "");
+}
+
+async function planAll(env, chatId) {
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM items WHERE status='pendiente' AND kind='tarea' AND start_at IS NULL AND priority!='algun_dia'
+     ORDER BY CASE priority WHEN 'urgente' THEN 0 ELSE 1 END, due_date IS NULL, due_date, id`
+  ).all();
+  if (!results.length) {
+    await tg(env, "sendMessage", { chat_id: chatId, text: "Todas tus tareas ya tienen hueco 👌" });
+    return;
+  }
+  const lines = [];
+  for (const it of results) {
+    const { slot, late } = await scheduleTask(env, it);
+    lines.push(slot
+      ? `• #${it.id} ${it.text} → ${dayLabel(slot.date)} ${slot.start}–${slot.end}${late ? " ⚠️ tarde" : ""}`
+      : `• #${it.id} ${it.text} → sin hueco`);
+  }
+  await tg(env, "sendMessage", {
+    chat_id: chatId,
+    text: `🧠 He colocado ${results.length} tareas:\n\n${lines.join("\n")}\n\nUsa 🔁 en cada una o el dashboard para moverlas.`.slice(0, 4000),
+  });
+}
+
+async function saveSingleItem(env, chatId, file, effectiveText, cls, preBuffer) {
+  const { id, agenda } = await insertItem(env, effectiveText, cls);
 
   let fileNote = "";
   if (file) {
@@ -102,18 +196,15 @@ async function saveSingleItem(env, chatId, file, effectiveText, cls, preBuffer) 
 
   await tg(env, "sendMessage", {
     chat_id: chatId,
-    text: `📥 Guardada #${id}\n${summaryLine(cls)}${fileNote}`,
-    reply_markup: itemKeyboard(id),
+    text: `📥 Guardada #${id}\n${summaryLine(cls)}${agenda}${fileNote}`,
+    reply_markup: itemKeyboard(id, cls.kind),
   });
 }
 
 async function saveAudioItems(env, chatId, file, preBuffer, transcript, items) {
   for (let idx = 0; idx < items.length; idx++) {
     const cls = items[idx];
-    const res = await env.DB.prepare(
-      "INSERT INTO items (kind, text, category, priority, due_date) VALUES (?, ?, ?, ?, ?)"
-    ).bind(cls.kind, cls.text, cls.category, cls.priority, cls.due_date).run();
-    const id = res.meta.last_row_id;
+    const { id, agenda } = await insertItem(env, cls.text, cls);
 
     // Cada item se lleva su propia copia del audio en KV (evita que borrar
     // una tarea deje sin adjunto a las demás creadas del mismo audio).
@@ -123,8 +214,8 @@ async function saveAudioItems(env, chatId, file, preBuffer, transcript, items) {
 
     await tg(env, "sendMessage", {
       chat_id: chatId,
-      text: `${prefix}📥 Guardada #${id}\n${summaryLine(cls)}${fileNote}`,
-      reply_markup: itemKeyboard(id),
+      text: `${prefix}📥 Guardada #${id}\n${summaryLine(cls)}${agenda}${fileNote}`,
+      reply_markup: itemKeyboard(id, cls.kind),
     });
   }
 }
@@ -176,14 +267,30 @@ async function handleCallback(cb, env) {
     await env.DB.prepare("UPDATE items SET priority='urgente' WHERE id=?").bind(id).run();
     notice = "🔥 Marcada urgente";
   } else if (action === "sd") {
-    await env.DB.prepare("UPDATE items SET priority='algun_dia' WHERE id=?").bind(id).run();
+    // Algo de "algún día" deja de ocupar hueco en la agenda.
+    await env.DB.prepare(
+      `UPDATE items SET priority='algun_dia',
+         start_at = CASE WHEN kind='tarea' THEN NULL ELSE start_at END,
+         end_at = CASE WHEN kind='tarea' THEN NULL ELSE end_at END
+       WHERE id=?`
+    ).bind(id).run();
     notice = "🌙 Para algún día";
+  } else if (action === "mv") {
+    const it = await env.DB.prepare("SELECT * FROM items WHERE id=?").bind(id).first();
+    if (it?.kind === "tarea") {
+      // Siguiente hueco a partir del final del bloque actual.
+      const after = it.end_at ? { date: it.end_at.slice(0, 10), time: it.end_at.slice(11, 16) } : null;
+      const line = await placeTask(env, it, after);
+      notice = "🔁 Movida";
+      await tg(env, "sendMessage", { chat_id: cb.message.chat.id, text: `🔁 #${id} ${it.text}${line}` });
+    }
   } else if (action === "del") {
+    const it = await env.DB.prepare("SELECT kind FROM items WHERE id=?").bind(id).first();
     const atts = await env.DB.prepare("SELECT r2_key FROM attachments WHERE item_id=?").bind(id).all();
     for (const a of atts.results) await env.FILES.delete(a.r2_key);
     await env.DB.prepare("DELETE FROM attachments WHERE item_id=?").bind(id).run();
     await env.DB.prepare("DELETE FROM items WHERE id=?").bind(id).run();
-    notice = "🗑 Borrada";
+    notice = it?.kind === "cancelacion" ? "↩️ Deshecho: vuelve a estar en tu calendario" : "🗑 Borrada";
   }
 
   await tg(env, "answerCallbackQuery", { callback_query_id: cb.id, text: notice });
@@ -193,11 +300,12 @@ async function handleCallback(cb, env) {
       message_id: cb.message.message_id,
       text: `${notice} #${id}`,
     });
-  } else {
+  } else if (action !== "mv") {
+    const it = await env.DB.prepare("SELECT kind FROM items WHERE id=?").bind(id).first();
     await tg(env, "editMessageReplyMarkup", {
       chat_id: cb.message.chat.id,
       message_id: cb.message.message_id,
-      reply_markup: itemKeyboard(id),
+      reply_markup: itemKeyboard(id, it?.kind),
     });
   }
 }
@@ -226,26 +334,40 @@ async function sendList(env, chatId, onlyToday) {
   await tg(env, "sendMessage", { chat_id: chatId, text: lines.join("\n").slice(0, 4000) });
 }
 
-function itemKeyboard(id) {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✅ Hecha", callback_data: `done:${id}` },
-        { text: "🔥 Urgente", callback_data: `urg:${id}` },
-      ],
-      [
-        { text: "🌙 Algún día", callback_data: `sd:${id}` },
-        { text: "🗑 Borrar", callback_data: `del:${id}` },
-      ],
+export function itemKeyboard(id, kind = "tarea") {
+  if (kind === "cancelacion") {
+    return { inline_keyboard: [[{ text: "↩️ Deshacer", callback_data: `del:${id}` }]] };
+  }
+  if (kind === "examen") {
+    return { inline_keyboard: [[{ text: "🗑 Borrar", callback_data: `del:${id}` }]] };
+  }
+  if (kind === "evento") {
+    return { inline_keyboard: [[{ text: "✅ Hecho", callback_data: `done:${id}` }, { text: "🗑 Borrar", callback_data: `del:${id}` }]] };
+  }
+  const rows = [
+    [
+      { text: "✅ Hecha", callback_data: `done:${id}` },
+      { text: "🔥 Urgente", callback_data: `urg:${id}` },
     ],
-  };
+    [
+      { text: "🌙 Algún día", callback_data: `sd:${id}` },
+      { text: "🗑 Borrar", callback_data: `del:${id}` },
+    ],
+  ];
+  if (kind === "tarea") rows.unshift([{ text: "🔁 Otro hueco", callback_data: `mv:${id}` }]);
+  return { inline_keyboard: rows };
 }
 
 export function summaryLine(cls) {
-  const kind = { tarea: "📌 tarea", nota: "📝 nota", material: "📎 material" }[cls.kind];
+  const kind = {
+    tarea: "📌 tarea", evento: "📅 evento", examen: "📝 examen", cancelacion: "❌ cancelación",
+    nota: "🗒 nota", material: "📎 material",
+  }[cls.kind];
+  if (cls.kind === "cancelacion" || cls.kind === "examen") return kind;
   const prio = { urgente: "🔥 urgente", normal: "▫️ normal", algun_dia: "🌙 algún día" }[cls.priority];
   const parts = [kind, prio];
   if (cls.category) parts.push(`🏷 ${cls.category}`);
-  if (cls.due_date) parts.push(`📅 ${cls.due_date}`);
+  if (cls.due_date && cls.kind !== "evento") parts.push(`📅 vence ${dayLabel(cls.due_date)}`);
+  if (cls.kind === "tarea" && cls.duration_min) parts.push(`⏱ ${cls.duration_min} min`);
   return parts.join(" · ");
 }

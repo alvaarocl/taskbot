@@ -1,7 +1,11 @@
 import { handleWebhook } from "./telegram.js";
 import { handleApi } from "./api.js";
-import { runReminders } from "./reminders.js";
-import { handleCalendar } from "./calendar.js";
+import { runReminders, notifyReplan } from "./reminders.js";
+import { handleCalendar, handleScheduleFeed } from "./calendar.js";
+import { syncUc3m } from "./sync.js";
+
+// Debe coincidir con el segundo cron de wrangler.toml.
+const SYNC_CRON = "30 */3 * * *";
 
 export default {
   async fetch(request, env, ctx) {
@@ -10,11 +14,14 @@ export default {
     if (url.pathname.startsWith("/api/")) return handleApi(request, env);
     if (url.pathname.startsWith("/files/")) return serveFile(url, env);
     if (url.pathname === "/calendar.ics") return handleCalendar(url, env);
+    if (url.pathname.startsWith("/cal/")) return handleScheduleFeed(url, env);
     return env.ASSETS.fetch(request);
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runReminders(env));
+    // Primero el horario de la UC3M; luego se recolocan las tareas que ahora choquen.
+    if (event.cron === SYNC_CRON) ctx.waitUntil(syncUc3m(env).finally(() => notifyReplan(env)));
+    else ctx.waitUntil(runReminders(env));
   },
 };
 
