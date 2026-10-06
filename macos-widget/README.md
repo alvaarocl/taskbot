@@ -19,6 +19,16 @@ Widget nativo de WidgetKit para poner las tareas pendientes de Taskbot en el Cen
 
 Al pulsar fuera de los botones, el widget abre el dashboard para consultar la lista completa. El widget consulta solo tareas `kind=tarea` con `status=pendiente` y actualiza su contenido aproximadamente cada 15 minutos, según el calendario de actualización de WidgetKit; al completar una tarea, WidgetKit vuelve a consultar la lista.
 
+## Recordatorios (en las dos direcciones)
+
+Cada 5 minutos, `RemindersSync.swift` mantiene la lista **«Taskbot»** de Recordatorios (en iCloud, así que sale en el iPhone y admite el widget de Recordatorios):
+- cada tarea pendiente es un recordatorio, con fecha límite (y hora si viene de Aula Global), prioridad (🔥 urgente = alta) y el hueco reservado en las notas;
+- **marcarlo como completado** en el iPhone, el Mac o el widget → la tarea se marca hecha en taskbot;
+- **escribir un recordatorio nuevo** en la lista → se crea la tarea en taskbot;
+- completar o borrar la tarea en Telegram/dashboard → el recordatorio desaparece.
+
+Cada recordatorio guarda su tarea en la URL `taskbot://item/<id>`. Borrar un recordatorio sin completarlo no borra la tarea: vuelve a aparecer en la siguiente pasada (para quitarla, complétala o bórrala en Telegram). La primera vez macOS pide permiso para Recordatorios (entitlement `com.apple.security.personal-information.calendars`).
+
 ## Copia automática a Apple Notes
 
 La app **Taskbot.app** mantiene la nota **“Taskbot — Tareas pendientes”** con todas las tareas pendientes capturadas en Telegram, incluidas fecha, categoría y prioridad. Actualiza esa nota cada 5 minutos mientras el Mac está encendido y conectado. La primera vez, macOS pide permiso para que Taskbot controle Notas. La app se registra para abrirse al iniciar sesión; ese ajuste se puede cambiar en la ventana de Taskbot.

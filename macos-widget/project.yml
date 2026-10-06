@@ -26,6 +26,8 @@ targets:
         INFOPLIST_KEY_CFBundleShortVersionString: "1.0"
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         INFOPLIST_KEY_NSAppleEventsUsageDescription: Taskbot actualiza una nota con tus tareas pendientes.
+        INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: Taskbot mantiene tus tareas en la lista "Taskbot" de Recordatorios y marca como hechas las que completes allí.
+        INFOPLIST_KEY_NSRemindersUsageDescription: Taskbot mantiene tus tareas en la lista "Taskbot" de Recordatorios.
         CODE_SIGN_ENTITLEMENTS: TaskbotApp/Taskbot.entitlements
         CODE_SIGN_STYLE: Automatic
         REGISTER_APP_GROUPS: YES

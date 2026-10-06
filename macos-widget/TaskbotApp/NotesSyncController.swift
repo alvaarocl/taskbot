@@ -7,13 +7,7 @@ import WidgetKit
 private let taskbotNotesAPI = URL(string: "https://taskbot.YOUR-SUBDOMAIN.workers.dev/api/items?status=pendiente&kind=tarea")!
 private let notesTitle = "Taskbot — Tareas pendientes"
 
-struct NotesTask: Decodable {
-    let id: Int
-    let text: String
-    let priority: String?
-    let due_date: String?
-    let category: String?
-}
+typealias NotesTask = TaskbotTask
 
 private struct NotesItemsResponse: Decodable {
     let items: [NotesTask]
@@ -66,11 +60,20 @@ final class NotesSyncController: ObservableObject {
                 throw SyncError.api
             }
             let items = try JSONDecoder().decode(NotesItemsResponse.self, from: data).items
-            try writeNote(items)
+            // Recordatorios primero: si ahí se ha marcado algo como hecho, la nota ya sale sin ello.
+            var reminders: String
+            do {
+                reminders = try await RemindersSync.shared.sync(tasks: items, token: token)
+            } catch {
+                reminders = "Recordatorios: \(error.localizedDescription)"
+            }
+            let (fresh, _) = try await URLSession.shared.data(for: request)
+            let current = (try? JSONDecoder().decode(NotesItemsResponse.self, from: fresh).items) ?? items
+            try writeNote(current)
             WidgetCenter.shared.reloadAllTimelines()
-            let count = items.count
+            let count = current.count
             let time = Date.now.formatted(date: .omitted, time: .shortened)
-            status = "Notas actualizada · \(count) \(count == 1 ? "tarea" : "tareas") · \(time)"
+            status = "\(count) \(count == 1 ? "tarea" : "tareas") · \(reminders) · Notas al día · \(time)"
         } catch {
             status = "Error al sincronizar: \(error.localizedDescription)"
         }

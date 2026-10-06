@@ -30,7 +30,7 @@ private struct SettingsView: View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Taskbot — Notas", systemImage: "checklist")
                 .font(.largeTitle.bold())
-            Text("Taskbot copiará a Apple Notes todas las tareas pendientes que captures en Telegram.")
+            Text("Taskbot mantiene tus tareas pendientes en la lista «Taskbot» de Recordatorios (márcalas ahí y se completan en Telegram) y una copia en Apple Notes.")
                 .foregroundStyle(.secondary)
             SecureField("Clave DASH_TOKEN", text: $token)
                 .textFieldStyle(.roundedBorder)
@@ -56,7 +56,7 @@ private struct SettingsView: View {
                         launchAtLogin = SMAppService.mainApp.status == .enabled
                     }
                 }
-            Text("Taskbot se queda en la barra de menús y actualiza la nota cada 5 minutos. La primera vez, macOS te pedirá permiso para controlar Notas.")
+            Text("Taskbot sincroniza cada 5 minutos. La primera vez, macOS te pedirá permiso para Recordatorios y para controlar Notas.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             HStack {
