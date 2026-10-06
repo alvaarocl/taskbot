@@ -42,7 +42,9 @@ Todos con el mismo `CAL_TOKEN` (`?t=...`):
 
 | URL | Calendario |
 |---|---|
-| `/cal/clases.ics` | **UC3M · Clases**: clases, laboratorios, recuperaciones y exámenes |
+| `/cal/clases.ics` | **UC3M · Clases**: clases de teoría y recuperaciones |
+| `/cal/practicas.ics` | **UC3M · Prácticas** (naranja): prácticas/laboratorios + fechas límite ⏰ de Aula Global |
+| `/cal/examenes.ics` | **UC3M · Exámenes** (rojo): parciales, controles, EC y finales |
 | `/cal/rutina.ics` | **Rutina**: entrenos y partidos según el calendario escolar de Toledo |
 | `/calendar.ics` | **Taskbot**: eventos y bloques de tareas |
 

@@ -36,26 +36,46 @@ export async function handleScheduleFeed(url, env) {
   if (url.searchParams.get("t") !== env.CAL_TOKEN) {
     return new Response("forbidden", { status: 403 });
   }
-  let name, events;
-  if (url.pathname === "/cal/clases.ics") {
-    name = "UC3M · Clases";
-    const { sessions, examEvents } = await fixedAgenda(env);
-    events = sessions.map((s) => ({
+  // Apple pone un color por calendario, no por evento: exámenes y prácticas van aparte.
+  let name, events, color;
+  const path = url.pathname;
+  if (path === "/cal/clases.ics" || path === "/cal/practicas.ics") {
+    const practicas = path === "/cal/practicas.ics";
+    const { sessions } = await fixedAgenda(env);
+    name = practicas ? "UC3M · Prácticas" : "UC3M · Clases";
+    color = practicas ? "#FF9500" : null;
+    events = sessions.filter((s) => (s.type === "PRÁCTICAS") === practicas).map((s) => ({
       uid: `uc3m-${s.key.normalize("NFD").replace(/\p{M}/gu, "").replace(/[^A-Za-z0-9]+/g, "-")}`,
       date: s.date, start: s.start, end: s.end,
       summary: (s.type === "RECUPERACIÓN" ? "⚠️ " : "") + `${s.subject} · ${typeLabel(s.type)}`,
       location: s.room === "Virtual" ? "Virtual" : `Aula ${s.room} · UC3M Leganés`,
-    })).concat(examEvents);
-  } else if (url.pathname === "/cal/rutina.ics") {
+    }));
+    if (practicas) events.push(...(await deadlineEvents(env)));
+  } else if (path === "/cal/examenes.ics") {
+    name = "UC3M · Exámenes";
+    color = "#FF3B30";
+    events = (await fixedAgenda(env)).examEvents;
+  } else if (path === "/cal/rutina.ics") {
     name = "Rutina";
     events = (await fixedAgenda(env)).routine;
   } else {
     return new Response("not found", { status: 404 });
   }
-  return icsResponse(buildCalendar(name, events));
+  return icsResponse(buildCalendar(name, events, color));
 }
 
-export function buildCalendar(name, events) {
+// Fechas límite de entregas y cuestionarios de Aula Global (día completo, con enlace).
+async function deadlineEvents(env) {
+  const { results } = await env.DB.prepare(
+    "SELECT id, text, due_date, url FROM items WHERE status='pendiente' AND source LIKE 'ag:%' AND due_date IS NOT NULL"
+  ).all();
+  return results.map((it) => ({
+    uid: `deadline-${it.id}`, date: it.due_date, allDay: true,
+    summary: `⏰ ${it.text.replace(/^Entregar: /, "Entrega: ")}`, description: it.url,
+  }));
+}
+
+export function buildCalendar(name, events, color = null) {
   const stamp = toUtcStamp(new Date());
   const lines = [
     "BEGIN:VCALENDAR",
@@ -64,6 +84,8 @@ export function buildCalendar(name, events) {
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeText(name)}`,
+    // Color con el que Apple crea el calendario al suscribirse (luego se puede cambiar).
+    ...(color ? [`X-APPLE-CALENDAR-COLOR:${color}`] : []),
     "X-WR-TIMEZONE:Europe/Madrid",
     "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
     "X-PUBLISHED-TTL:PT1H",
