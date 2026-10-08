@@ -2,6 +2,9 @@
 
 **A personal operating system for a university student, run from a Telegram chat.**
 
+![A Telegram conversation with taskbot next to the week it produces in Apple Calendar](docs/hero.png)
+<sub>Illustration with example data: what you send on Telegram (left) and where it lands in the subscribed calendars (right).</sub>
+
 I used to send myself WhatsApp messages to remember things, while deadlines lived in Moodle, my timetable lived on a university website and my basketball coaching schedule lived in my head. taskbot puts all of it in one place: I text or voice-note a Telegram bot, an LLM works out what I meant, and everything lands in one agenda that also knows my classes, my exams and my Moodle deadlines.
 
 It has run my semester since July 2026 and costs **€0/month**: Cloudflare's free tier, vanilla JavaScript, no npm dependencies, no build step.
