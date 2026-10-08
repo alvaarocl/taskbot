@@ -4,3 +4,7 @@ node_modules/
 dist/
 **/xcuserdata/
 **/DerivedData/
+
+# Notas personales (Obsidian), fuera del repo público
+Estado.md
+Sesiones/
