@@ -5,6 +5,8 @@
 // lanzamiento oficial y, sobre todo, el mismo tema en varias fuentes a la vez (eso es que está pegando).
 // La IA mira los más calientes y decide si alguno merece un post ahora; el código decide si avisar
 // según la cadencia (`social.cadence`: un aviso cada 20–44 h, nada de noche, lo muy gordo se salta la espera).
+// Noticias (fuentes con `news`): "Anthropic ha publicado…" en el momento, sin esperar a la cadencia; la IA
+// descarta lo menor (clientes, alianzas). De noche se acumulan y llegan juntas a las 9.
 // Eventos tech de Madrid: se miran una vez al día y solo se avisa de los nuevos que interesan.
 //
 // Telegram: /post idea, /radar (lo más caliente ahora), /cita N, /guardar N, /hilo.
@@ -118,7 +120,7 @@ async function fromFeeds() {
     try {
       const body = await get(src.url);
       const items = (src.type === "links" ? parseLinks(body, src.url, src.pattern) : parseFeed(body)).slice(0, 10);
-      for (const i of items) out.push({ ...i, source: src.name, official: !!src.official });
+      for (const i of items) out.push({ ...i, source: src.name, official: !!src.news });
     } catch (e) {
       console.error("feed", src.name, e?.message || e);
     }
@@ -267,10 +269,12 @@ async function refreshPool(env, hour) {
 // Lo más caliente sin repetir tema ni lo ya avisado.
 async function hottest(env, list, n) {
   const used = new Set(await kvJson(env, "social:used", []));
+  const announced = await kvJson(env, "social:announced", {});
   const out = [];
   for (const it of [...list].sort((a, b) => b.heat - a.heat)) {
     if (out.length >= n) break;
     if (used.has(it.key) || it.first < Date.now() - 2 * DAY * 1000 && !it.hn && !it.stars) continue;
+    if (Date.now() - (announced[it.key] || 0) < 3 * HOUR) continue; // acaba de llegar como noticia
     it.words = topicWords(it);
     if (out.some((o) => sameTopic(o, it))) continue;
     out.push(it);
@@ -340,6 +344,64 @@ async function maybeSuggest(env, list, now) {
         [{ text: "✅ Publicado", callback_data: `xy:${n}` }, { text: "⏭ Paso", callback_data: `xn:${n}` }],
       ] },
     });
+}
+
+// ---------- noticias: lo que publican las fuentes con `news`, en el momento ----------
+
+async function announceNews(env, list, now) {
+  const [quietFrom, quietTo] = cfg().cadence.quiet;
+  const hour = Number(now.time.slice(0, 2));
+  if (hour >= quietFrom || hour < quietTo) return; // se quedan pendientes hasta la mañana
+
+  const announced = await kvJson(env, "social:announced", {}); // url → cuándo se miró
+  const pending = list
+    .filter((it) => it.official && Date.now() - it.first < 18 * HOUR && !announced[it.key])
+    .sort((a, b) => a.first - b.first)
+    .slice(0, 12);
+  if (!pending.length) return;
+
+  const listing = pending.map((it, i) => `${i + 1}. [${it.source}] ${it.title}${it.summary ? ` — ${short(it.summary, 220)}` : ""}`).join("\n");
+  let keep;
+  try {
+    const j = await aiJson(env,
+      `Filtras novedades para ${cfg().voice} Avisa SOLO de lo que es noticia: un modelo, producto o función nuevos, ` +
+      "una versión importante, un cambio de precio o de límites, una investigación relevante o algo que afecte a quien programa. " +
+      "Descarta: casos de clientes, alianzas, contrataciones, eventos, encuestas, posts corporativos o de marketing y versiones menores con solo arreglos. " +
+      'Responde SOLO con JSON: {"keep":[{"n": número, "line": "qué es y por qué importa, en español, una frase"}]}',
+      listing, 600);
+    keep = (Array.isArray(j.keep) ? j.keep : []).map((k) => ({ ...pending[Number(k.n) - 1], line: k.line })).filter((k) => k.key);
+  } catch (e) {
+    console.error("noticias", e?.message || e);
+    return; // se reintenta en la próxima hora
+  }
+  for (const it of pending) announced[it.key] = Date.now();
+  for (const [k, t] of Object.entries(announced)) if (Date.now() - t > 7 * DAY * 1000) delete announced[k];
+  await env.FILES.put("social:announced", JSON.stringify(announced));
+  if (!keep.length) return;
+
+  const night = hour === quietTo && keep.some((it) => Date.now() - it.first > 3 * HOUR);
+  if (keep.length <= 3 && !night) {
+    for (const it of keep) {
+      const n = await remember(env, { ...it, angle: null });
+      await send(env, `🗞 ${it.source} ha publicado: ${it.title}${it.line ? `\n${it.line}` : ""}\n\n${it.url}`, {
+        reply_markup: { inline_keyboard: [[
+          { text: "✍️ Borrador", callback_data: `xd:${n}` },
+          { text: "⭐ Guardar", callback_data: `xs:${n}` },
+        ]] },
+      });
+    }
+    return;
+  }
+  const lines = [];
+  const buttons = [];
+  for (const [i, it] of keep.slice(0, 8).entries()) {
+    const n = await remember(env, { ...it, angle: null });
+    lines.push(`${i + 1}. ${it.source}: ${short(it.title, 80)}${it.line ? `\n   ${it.line}` : ""}\n   ${it.url}`);
+    buttons.push({ text: `✍️ ${i + 1}`, callback_data: `xd:${n}` });
+  }
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 4) rows.push(buttons.slice(i, i + 4));
+  await send(env, `🗞 ${night ? "Mientras dormías" : "Novedades"}\n\n${lines.join("\n")}`, { reply_markup: { inline_keyboard: rows }, ...noPreview });
 }
 
 // ---------- eventos tech en Madrid (una vez al día, solo los nuevos) ----------
@@ -466,7 +528,11 @@ export async function hourlySocial(env) {
   const now = nowMadrid();
   const hour = Number(now.time.slice(0, 2));
   const jobs = [
-    ["pool", async () => maybeSuggest(env, await refreshPool(env, hour), now)],
+    ["pool", async () => {
+      const list = await refreshPool(env, hour);
+      await announceNews(env, list, now);
+      await maybeSuggest(env, list, now);
+    }],
     ["eventos", () => hour === cfg().events.hour && madridEvents(env)],
     ["fin de evento", () => eventFollowups(env, now)],
   ];

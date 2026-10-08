@@ -34,6 +34,7 @@ It is also **an assistant for posting on X** ([`src/social.js`](src/social.js)).
 
 - **Every hour it reads** official blogs (OpenAI, Anthropic, DeepMind), the blogs I follow, Hacker News, GitHub Trending and Product Hunt into a 48-hour pool.
 - **Each candidate gets a temperature** from Hacker News points per hour, GitHub stars today, being a first-hand launch and, above all, **the same topic appearing in several sources at once**. That is the signal that something is taking off, matched through an inverted word index that fits in the free tier's 10 ms of CPU.
+- **First-hand news arrives right away.** When OpenAI, Anthropic, DeepMind, Gemini, Claude Code, Cursor, GitHub, Qwen, Apple Developer or Rust publish something, an LLM drops the minor posts (customer stories, partnerships, bug-fix releases) and the rest arrives within the hour as "🗞 Anthropic has published…". Anything published overnight arrives together at 9:00.
 - **An LLM reads the hottest ones** and decides whether any deserves a post now, why now and what angle I could bring.
 - **A cadence keeps it to roughly one nudge every 20 to 44 hours.** Before 20 hours only something big gets through; after 44 hours the bar drops. Nothing is sent at night.
 - **Each nudge has buttons:** ✍️ two drafts in my voice for a quote post, ✅ posted, ⏭ skip and ⭐ save for a thread.

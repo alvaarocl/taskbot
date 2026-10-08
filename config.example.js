@@ -71,13 +71,20 @@ export default {
     cadence: { minHours: 20, maxHours: 44, maxPerDay: 2, quiet: [23, 9], minScore: 7, urgentScore: 8, lateScore: 5 },
     github: { languages: ["", "typescript", "rust", "python", "swift"] }, // "" = todos los lenguajes
     events: { hour: 12, luma: "madrid", meetupKeywords: ["inteligencia artificial", "programación", "startup"] }, // se miran a esa hora; solo avisa de los nuevos
-    // official: lanzamientos de primera mano (suben la temperatura en sus primeras 12 h).
-    // type "links": páginas sin RSS; se avisa de los enlaces nuevos que contienen `pattern`.
+    // news: fuentes de primera mano. Lo importante que publican llega al momento como 🗞 (la IA descarta lo menor)
+    // y además sube la temperatura del tema en sus primeras 12 h.
+    // type "links": páginas sin RSS; se leen los enlaces que contienen `pattern`.
     feeds: [
-      { name: "OpenAI", url: "https://openai.com/news/rss.xml", official: true },
-      { name: "Anthropic", url: "https://www.anthropic.com/news", type: "links", pattern: "/news/", official: true },
-      { name: "Google DeepMind", url: "https://deepmind.google/blog/rss.xml", official: true },
-      { name: "Claude Code", url: "https://github.com/anthropics/claude-code/releases.atom" },
+      { name: "OpenAI", url: "https://openai.com/news/rss.xml", news: true },
+      { name: "Anthropic", url: "https://www.anthropic.com/news", type: "links", pattern: "/news/", news: true },
+      { name: "Google DeepMind", url: "https://deepmind.google/blog/rss.xml", news: true },
+      { name: "Google Gemini", url: "https://blog.google/products/gemini/rss/", news: true },
+      { name: "Claude Code", url: "https://github.com/anthropics/claude-code/releases.atom", news: true },
+      { name: "Cursor", url: "https://cursor.com/changelog/rss.xml", news: true },
+      { name: "GitHub Changelog", url: "https://github.blog/changelog/feed/", news: true },
+      { name: "Qwen", url: "https://qwenlm.github.io/blog/index.xml", news: true },
+      { name: "Apple Developer", url: "https://developer.apple.com/news/rss/news.rss", news: true },
+      { name: "Rust", url: "https://blog.rust-lang.org/feed.xml", news: true },
       { name: "Hugging Face", url: "https://huggingface.co/blog/feed.xml" },
       { name: "Simon Willison", url: "https://simonwillison.net/atom/everything/" },
       { name: "Latent Space", url: "https://www.latent.space/feed" },

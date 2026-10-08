@@ -34,6 +34,7 @@ Si algo falla, el bot lo dice en vez de quedarse callado.
 No publica nada ni va por horarios: te avisa cuando hay algo que merece un post y te escribe borradores. Código en `src/social.js`; fuentes, cadencia y "voz" en `config.js` (`social`).
 
 - **Cada hora lee** las fuentes (blogs oficiales, blogs que sigues, Hacker News, GitHub Trending, Product Hunt) y les pone **temperatura**: puntos de HN por hora, estrellas de hoy, lanzamiento oficial reciente y, sobre todo, **el mismo tema en varias fuentes a la vez** (señal de que está pegando).
+- **Noticias al momento** (fuentes con `news`: OpenAI, Anthropic, DeepMind, Gemini, Claude Code, Cursor, GitHub, Qwen, Apple Developer, Rust): la IA descarta lo menor (clientes, alianzas, versiones con solo arreglos) y lo demás llega en menos de una hora como "🗞 Anthropic ha publicado…", sin esperar a la cadencia. Lo de la noche llega junto a las 9 ("Mientras dormías").
 - **La IA mira lo más caliente** y decide si algo merece post ahora, por qué y con qué ángulo.
 - **Cadencia** (`social.cadence`): un aviso cada 20–44 h, máximo 2 al día, nada entre las 23 y las 9. Antes de 20 h solo si es algo gordo; pasadas 44 h baja el listón.
 - El aviso trae ✍️ Borrador (dos versiones para citar), ⭐ Guardar, ✅ Publicado y ⏭ Paso.
