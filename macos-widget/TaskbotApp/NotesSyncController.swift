@@ -4,7 +4,7 @@ import Foundation
 import ServiceManagement
 import WidgetKit
 
-private let taskbotNotesAPI = URL(string: "https://taskbot.YOUR-SUBDOMAIN.workers.dev/api/items?status=pendiente&kind=tarea")!
+private let taskbotNotesAPI = URL(string: taskbotBaseURL + "/api/items?status=pendiente&kind=tarea")!
 private let notesTitle = "Taskbot — Tareas pendientes"
 
 typealias NotesTask = TaskbotTask

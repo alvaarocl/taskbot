@@ -26,7 +26,7 @@ final class RemindersSync {
     private let store = EKEventStore()
     private let listName = "Taskbot"
     private let scheme = "taskbot://item/"
-    private let api = URL(string: "https://taskbot.YOUR-SUBDOMAIN.workers.dev/api/items")!
+    private let api = URL(string: taskbotBaseURL + "/api/items")!
 
     /// Devuelve un resumen corto de lo que ha hecho, para la ventana de la app.
     func sync(tasks: [TaskbotTask], token: String) async throws -> String {

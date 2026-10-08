@@ -1,8 +1,8 @@
 import SwiftUI
 import WidgetKit
 
-private let apiURL = URL(string: "https://taskbot.YOUR-SUBDOMAIN.workers.dev/api/items?status=pendiente&kind=tarea")!
-private let dashboardURL = URL(string: "https://taskbot.YOUR-SUBDOMAIN.workers.dev")!
+private let apiURL = URL(string: taskbotBaseURL + "/api/items?status=pendiente&kind=tarea")!
+private let dashboardURL = URL(string: taskbotBaseURL)!
 private let appGroupID = "group.com.alvarocarpintero.taskbot"
 
 struct TodoItem: Decodable, Identifiable {

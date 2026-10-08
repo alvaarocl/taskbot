@@ -2,19 +2,11 @@
 // calcula los huecos libres y coloca cada tarea en uno de ellos.
 // Todas las horas son locales de Madrid: fechas "YYYY-MM-DD" y horas "HH:MM".
 
+import config from "../config.js";
 import { typeLabel } from "./sync.js";
 import { fixedAgenda } from "./overrides.js";
 
-export const PREFS = {
-  window: { weekday: ["08:00", "22:00"], weekend: ["10:00", "21:00"] }, // horas en las que se puede planificar
-  lunch: ["14:00", "14:30"], // entre semana
-  travelBeforeRoutine: 30, // minutos de viaje antes de cada entreno
-  afterRoutine: 15, // margen al acabar el entreno
-  commute: 30, // viaje antes de la primera clase y después de la última
-  minSlot: 30, // un hueco más corto no cuenta
-  defaultTaskMin: 45,
-  horizonDays: 14, // tareas sin fecha: dentro de las próximas 2 semanas
-};
+export const PREFS = config.prefs;
 
 const DAYS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 

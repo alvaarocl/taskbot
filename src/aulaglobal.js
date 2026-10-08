@@ -10,11 +10,12 @@
 //   - notas nuevas en Calificaciones → aviso
 // Lo último de avisos y notas se guarda en KV para que el asistente pueda responder sobre ello.
 
+import config from "../config.js";
 import { tg, itemKeyboard } from "./telegram.js";
 import { dayLabel, nowMadrid } from "./brain.js";
 
 const SITE = "https://aulaglobal.uc3m.es";
-const YEAR = "26/27"; // asignaturas de este curso: "… 26/27-1C" / "… 26/27-2C"
+const YEAR = config.aulaGlobal.year; // asignaturas de este curso: "… 26/27-1C" / "… 26/27-2C"
 const K = {
   files: "ag:files", forums: "ag:forums", avisos: "ag:avisos", grades: "ag:grades",
   alert: "ag:token-alert", remind: (src, h) => `ag:remind:${src}:${h}`,

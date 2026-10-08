@@ -10,10 +10,12 @@
 		0A4A654A0427769CA3699953 /* CompleteTaskIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 228C3B56B947A08782336DF8 /* CompleteTaskIntent.swift */; };
 		0A7EE4411BC3BCA8B5879DB2 /* RemindersSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C636F65DADBE8046BD49D728 /* RemindersSync.swift */; };
 		504AFD76C2699BE9477DE1BD /* TaskbotWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F0666D87D7184575CF674F /* TaskbotWidget.swift */; };
+		70CEC48DB11E012B7C005E77 /* TaskbotEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = F705B59D503F6EB83A97D393 /* TaskbotEndpoint.swift */; };
 		AB8BEB1F11FA874F8E1C02BF /* TaskbotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664A67EC29AC9F85F8F7C9BC /* TaskbotApp.swift */; };
 		CB7C91E77F83DBF248923933 /* NotesSyncController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36790E2F9D1EAAE6524978B8 /* NotesSyncController.swift */; };
 		E35DE4965B8ED07A396FA340 /* TaskbotWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 163CE325C84F882E05E8BFA0 /* TaskbotWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E5A56DD923473E4047EFB10A /* SharedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D7154ED7F7921F9B8363A5 /* SharedSettings.swift */; };
+		E65DFDC3DCCB0427A6AAA356 /* TaskbotEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = F705B59D503F6EB83A97D393 /* TaskbotEndpoint.swift */; };
 		F308D3453736C74882739D5F /* CompleteTaskIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 228C3B56B947A08782336DF8 /* CompleteTaskIntent.swift */; };
 /* End PBXBuildFile section */
 
@@ -52,6 +54,7 @@
 		B397C5F786E418449228AF73 /* Taskbot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Taskbot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B5D7154ED7F7921F9B8363A5 /* SharedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSettings.swift; sourceTree = "<group>"; };
 		C636F65DADBE8046BD49D728 /* RemindersSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersSync.swift; sourceTree = "<group>"; };
+		F705B59D503F6EB83A97D393 /* TaskbotEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskbotEndpoint.swift; sourceTree = "<group>"; };
 		F7574E588B3FD89461779E9F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -89,6 +92,7 @@
 			isa = PBXGroup;
 			children = (
 				228C3B56B947A08782336DF8 /* CompleteTaskIntent.swift */,
+				F705B59D503F6EB83A97D393 /* TaskbotEndpoint.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -189,6 +193,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F308D3453736C74882739D5F /* CompleteTaskIntent.swift in Sources */,
+				70CEC48DB11E012B7C005E77 /* TaskbotEndpoint.swift in Sources */,
 				504AFD76C2699BE9477DE1BD /* TaskbotWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -202,6 +207,7 @@
 				0A7EE4411BC3BCA8B5879DB2 /* RemindersSync.swift in Sources */,
 				E5A56DD923473E4047EFB10A /* SharedSettings.swift in Sources */,
 				AB8BEB1F11FA874F8E1C02BF /* TaskbotApp.swift in Sources */,
+				E65DFDC3DCCB0427A6AAA356 /* TaskbotEndpoint.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

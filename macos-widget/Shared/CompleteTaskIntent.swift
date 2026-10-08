@@ -2,7 +2,7 @@ import AppIntents
 import Foundation
 
 private let taskbotAppGroupID = "group.com.alvarocarpintero.taskbot"
-private let taskbotItemsURL = "https://taskbot.YOUR-SUBDOMAIN.workers.dev/api/items/"
+private let taskbotItemsURL = taskbotBaseURL + "/api/items/"
 
 struct CompleteTaskIntent: AppIntent {
     static var title: LocalizedStringResource = "Marcar tarea como hecha"

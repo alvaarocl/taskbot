@@ -1,3 +1,4 @@
+import config from "../config.js";
 import { typeLabel } from "./sync.js";
 import { fixedAgenda } from "./overrides.js";
 
@@ -99,7 +100,7 @@ export function buildCalendar(name, events, color = null) {
   for (const e of events) {
     lines.push(
       "BEGIN:VEVENT",
-      `UID:${e.uid}@taskbot.YOUR-SUBDOMAIN.workers.dev`,
+      `UID:${e.uid}@${config.calendar.uidDomain}`,
       `DTSTAMP:${stamp}`,
       ...(e.allDay
         ? [`DTSTART;VALUE=DATE:${e.date.replaceAll("-", "")}`]

@@ -2,42 +2,14 @@
 // "Mi horario" de la app solo exporta un .ics descargable; esta web sale del mismo sistema
 // y trae cada sesión con su fecha y aula, así que se puede leer sin login.
 
+import config from "../config.js";
+
 const BASE = "https://aplicaciones.uc3m.es/horarios-web/publicacion";
 
 const MONTHS = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, oct: 10, nov: 11, dic: 12 };
 
-// Una página por grupo y cuatrimestre; cada asignatura se queda solo si está en `subjects`
-// (código de asignatura → grupo). Cambia esto si cambias de matrícula.
-export const UC3M_CONFIG = {
-  year: 2026, // curso 2026/2027
-  plan: 570,
-  centro: 2, // EPS Leganés
-  pages: [
-    { curso: 2, grupo: 81, per: 1 },
-    { curso: 1, grupo: 81, per: 1 },
-    { curso: 2, grupo: 1082, per: 1 },
-    { curso: 2, grupo: 81, per: 2 },
-  ],
-  // Asignaturas matriculadas: código → grupo y nombre para el calendario.
-  // `alias`: cómo la llamas tú; sirve para saber de qué asignatura es un examen.
-  subjects: {
-    13866: { group: 81, name: "Cálculo", alias: ["calculo"] },
-    13874: { group: 81, name: "Estructura de Computadores", alias: ["computadores", "ec"] },
-    13875: { group: 81, name: "Fundamentos de Gestión Empresarial", alias: ["gestion", "empresa", "empresariales", "fge"] },
-    13877: { group: 81, name: "Autómatas y Lenguajes Formales", alias: ["automatas", "talf"] },
-    15974: { group: 81, name: "Ingeniería del Software", alias: ["ingenieria del software", "software", "is"] },
-    20605: { group: 1082, name: "Estructura de Datos y Algoritmos", alias: ["estructura de datos", "eda"] },
-    13878: { group: 81, name: "Sistemas Operativos", alias: ["sistemas operativos", "so"] },
-    13883: { group: 81, name: "Inteligencia Artificial", alias: ["inteligencia artificial", "ia"] },
-    18179: { group: 81, name: "Desarrollo de Software", alias: ["desarrollo", "software", "ds"] },
-    20606: { group: 81, name: "Diseño de Algoritmos", alias: ["diseno de algoritmos", "algoritmos"] },
-  },
-  // Humanidades: no salen en horarios-web. Copiadas de MiHorario.ics (2º cuatrimestre).
-  fixed: [
-    ["Historia del Ferrocarril en España", ["2027-01-28", "2027-02-04", "2027-02-11", "2027-02-18", "2027-02-25", "2027-03-04", "2027-03-11", "2027-03-18", "2027-04-01", "2027-04-08", "2027-04-15", "2027-04-22", "2027-04-29", "2027-05-06"]],
-    ["Seguridad y el Analista de Inteligencia", ["2027-02-01", "2027-02-08", "2027-02-15", "2027-02-22", "2027-03-01", "2027-03-08", "2027-03-15", "2027-04-05", "2027-04-12", "2027-04-19", "2027-04-26", "2027-05-03"]],
-  ],
-};
+// Matrícula: `uc3m` en config.js.
+export const UC3M_CONFIG = config.uc3m;
 
 export function pageUrl(cfg, p) {
   return `${BASE}/${cfg.year}/porCentroPlanCursoGrupo.tt?plan=${cfg.plan}&centro=${cfg.centro}` +

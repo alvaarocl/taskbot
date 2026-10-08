@@ -1,0 +1,2 @@
+// Cópialo a TaskbotEndpoint.swift (no se sube a git) y pon la URL de tu worker.
+let taskbotBaseURL = "https://taskbot.YOUR-SUBDOMAIN.workers.dev"

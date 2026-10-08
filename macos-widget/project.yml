@@ -14,6 +14,7 @@ targets:
     sources:
       - path: TaskbotApp
       - path: Shared/CompleteTaskIntent.swift
+      - path: Shared/TaskbotEndpoint.swift
     dependencies:
       - target: TaskbotWidgetExtension
         embed: true
@@ -39,6 +40,7 @@ targets:
     sources:
       - path: TaskbotWidget
       - path: Shared/CompleteTaskIntent.swift
+      - path: Shared/TaskbotEndpoint.swift
     info:
       path: TaskbotWidget/Info.plist
       properties:

@@ -8,3 +8,7 @@ dist/
 # Notas personales (Obsidian), fuera del repo público
 Estado.md
 Sesiones/
+
+# Configuración personal (ver config.example.js y TaskbotEndpoint.swift.example)
+config.js
+macos-widget/Shared/TaskbotEndpoint.swift
