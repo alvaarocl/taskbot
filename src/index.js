@@ -4,7 +4,7 @@ import { runReminders } from "./reminders.js";
 import { handleCalendar, handleScheduleFeed } from "./calendar.js";
 import { syncUc3m } from "./sync.js";
 import { syncAulaGlobal, syncAulaMaterial } from "./aulaglobal.js";
-import { morningSocial, hourlySocial } from "./social.js";
+import { hourlySocial } from "./social.js";
 
 // Deben coincidir con los crons de wrangler.toml. La cuenta gratuita permite 5 crons en total
 // (entre todos los workers), así que el de "45" reparte el trabajo según la hora.
@@ -25,10 +25,10 @@ export default {
 
   async scheduled(event, env, ctx) {
     const hour = new Date(event.scheduledTime).getUTCHours();
-    if (event.cron === MORNING_CRON) ctx.waitUntil(runReminders(env).then(() => morningSocial(env)));
+    if (event.cron === MORNING_CRON) ctx.waitUntil(runReminders(env));
     else if (event.cron === AULA_CRON) ctx.waitUntil(syncAulaGlobal(env));
     else if (event.cron === SPLIT_CRON) {
-      // Máximo 50 peticiones externas por ejecución: el horario usa ~4, material y notas ~15 y las fuentes de X ~12.
+      // Máximo 50 peticiones externas por ejecución: el horario usa ~4, material y notas ~15 y el asistente de X ~14 (~18 cuando toca Trending por lenguajes o eventos).
       if (hour % 3 === 0) ctx.waitUntil(syncUc3m(env));
       else if (hour % 3 === 1) ctx.waitUntil(syncAulaMaterial(env));
       ctx.waitUntil(hourlySocial(env));

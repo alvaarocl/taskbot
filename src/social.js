@@ -1,21 +1,24 @@
-// Asistente de X: avisa de qué hay y de cuándo toca publicar, y prepara borradores.
-// Nunca publica: solo busca, avisa y escribe borradores que se copian a mano.
+// Asistente de X: avisa cuando hay algo que merece un post y prepara borradores. Nunca publica.
 //
-// - Cada mañana (cron de las 8:00): radar (GitHub Trending, Hacker News, Product Hunt y lo nuevo de
-//   las fuentes de lectura), el formato que toca hoy y, los lunes, eventos tech de Madrid.
-// - Cada hora (cron :45): novedades de las fuentes con `alert` (OpenAI, Anthropic…) en el momento,
-//   "¿post?" al acabar un evento del calendario, "¿has publicado hoy?" a las 21 y el hilo del viernes.
-// - /post, /cita N y /guardar N desde Telegram; botones ✍️ ⭐ ➕ en los avisos.
+// Cada hora (cron :45) junta candidatos de todas las fuentes (blogs, Hacker News, GitHub Trending,
+// Product Hunt) en un "pool" de 48 h y les da una temperatura: puntos de HN por hora, estrellas de hoy,
+// lanzamiento oficial y, sobre todo, el mismo tema en varias fuentes a la vez (eso es que está pegando).
+// La IA mira los más calientes y decide si alguno merece un post ahora; el código decide si avisar
+// según la cadencia (`social.cadence`: un aviso cada 20–44 h, nada de noche, lo muy gordo se salta la espera).
+// Eventos tech de Madrid: se miran una vez al día y solo se avisa de los nuevos que interesan.
 //
-// Estado en KV (FILES) con prefijo `social:`. Las fuentes y el plan semanal están en config.js (`social`).
+// Telegram: /post idea, /radar (lo más caliente ahora), /cita N, /guardar N, /hilo.
+// Botones: ✍️ borrador · ✅ publicado · ⏭ paso · ⭐ guardar · ➕ evento al calendario.
+// Estado en KV (FILES) con prefijo `social:`. Fuentes y cadencia en config.js (`social`).
 
 import config from "../config.js";
 import { tg } from "./telegram.js";
-import { nowMadrid, addDays, dayLabel, conflictsFor } from "./brain.js";
+import { nowMadrid, dayLabel, conflictsFor } from "./brain.js";
 
 const MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const UA = { "user-agent": "Mozilla/5.0 (compatible; taskbot; +https://github.com/alvaarocl/taskbot)" };
 const DAY = 86400;
+const HOUR = 3600e3;
 const cfg = () => config.social;
 
 // ---------- utilidades ----------
@@ -48,7 +51,8 @@ export function parseFeed(xml) {
     const alt = links.find((l) => attr(l, "href") && (!attr(l, "rel") || attr(l, "rel") === "alternate"));
     const url = (alt ? attr(alt, "href") : decode(tag("link") || "")).replace(/&amp;/g, "&").trim();
     const summary = decode(tag("description") || tag("summary") || tag("content") || "");
-    return { title: decode(tag("title") || ""), url, summary: summary.slice(0, 280) };
+    const date = Date.parse(decode(tag("pubDate") || tag("published") || tag("updated") || tag("dc:date") || "")) || null;
+    return { title: decode(tag("title") || ""), url, summary: summary.slice(0, 280), date };
   }).filter((i) => i.title && /^https?:/.test(i.url));
 }
 
@@ -63,15 +67,9 @@ export function parseLinks(html, base, pattern) {
     if (seen.has(url)) continue;
     seen.add(url);
     const slug = url.split("/").filter(Boolean).pop();
-    const title = slug.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
-    out.push({ title, url, summary: "" });
+    out.push({ title: slug.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()), url, summary: "" });
   }
   return out;
-}
-
-async function readSource(src) {
-  const body = await get(src.url);
-  return src.type === "links" ? parseLinks(body, src.url, src.pattern) : parseFeed(body);
 }
 
 // "2026-10-08T16:00:00Z" → "2026-10-08T18:00" (hora de Madrid)
@@ -82,12 +80,12 @@ export function madridLocal(iso) {
   }).format(new Date(iso)).replace(" ", "T");
 }
 
-const weekday = (date) => new Date(date + "T12:00:00Z").getUTCDay(); // 0 = domingo
 const short = (s, n) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
 const send = (env, text, extra = {}) =>
   tg(env, "sendMessage", { chat_id: env.OWNER_CHAT_ID, text: text.slice(0, 4000), ...extra });
+const noPreview = { link_preview_options: { is_disabled: true } };
 
-// Cada cosa avisada se guarda con un número para los botones (✍️ ⭐ ➕) durante 3 semanas.
+// Lo que sale en un aviso se guarda con un número para los botones durante 3 semanas.
 async function remember(env, item) {
   const n = Number((await env.FILES.get("social:n")) || 0) + 1;
   await env.FILES.put("social:n", String(n));
@@ -95,14 +93,7 @@ async function remember(env, item) {
   return n;
 }
 const recall = async (env, n) => env.FILES.get(`social:item:${n}`, { type: "json" });
-
-// Para no repetir lo mismo en días seguidos.
-async function fresh(env, key, ttlDays = 7) {
-  const k = `social:seen1:${key}`;
-  if (await env.FILES.get(k)) return false;
-  await env.FILES.put(k, "1", { expirationTtl: ttlDays * DAY });
-  return true;
-}
+const kvJson = async (env, key, fallback) => (await env.FILES.get(key, { type: "json" })) ?? fallback;
 
 async function aiJson(env, system, user, maxTokens = 700) {
   const res = await env.AI.run(MODEL, {
@@ -116,124 +107,242 @@ async function aiJson(env, system, user, maxTokens = 700) {
   return JSON.parse(m[0]);
 }
 
-// ---------- radar de la mañana ----------
+// ---------- candidatos ----------
 
-async function githubTrending(env) {
-  const all = [];
-  for (const lang of cfg().github.languages) {
+// Un candidato: { key, source, title, url, summary, heat, signals, first }.
+// `signals` explica la temperatura y llega tal cual a la IA y al aviso.
+
+async function fromFeeds() {
+  const out = [];
+  for (const src of cfg().feeds) {
+    try {
+      const body = await get(src.url);
+      const items = (src.type === "links" ? parseLinks(body, src.url, src.pattern) : parseFeed(body)).slice(0, 10);
+      for (const i of items) out.push({ ...i, source: src.name, official: !!src.official });
+    } catch (e) {
+      console.error("feed", src.name, e?.message || e);
+    }
+  }
+  return out;
+}
+
+async function fromHackerNews() {
+  const { hits } = await get("https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=40", "json");
+  return hits.sort((a, b) => b.points - a.points).slice(0, 20).map((h) => ({
+    source: "Hacker News", title: h.title, summary: "",
+    url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+    hn: { points: h.points, comments: h.num_comments, ageH: (Date.now() / 1000 - h.created_at_i) / 3600, id: h.objectID },
+  }));
+}
+
+async function fromGitHub(languages) {
+  const out = [];
+  for (const lang of languages) {
     try {
       const html = await get(`https://github.com/trending/${encodeURIComponent(lang)}?since=daily`);
       for (const row of html.split('<article class="Box-row">').slice(1)) {
         const repo = row.match(/<h2[\s\S]*?href="\/([^"]+)"/)?.[1];
-        if (!repo || all.some((r) => r.repo === repo)) continue;
-        all.push({
-          repo,
-          desc: decode(row.match(/<p class="[^"]*">([\s\S]*?)<\/p>/)?.[1] || ""),
-          lang: decode(row.match(/itemprop="programmingLanguage">([^<]*)</)?.[1] || ""),
-          today: Number((row.match(/([\d,]+) stars today/)?.[1] || "0").replace(/,/g, "")),
+        if (!repo || out.some((r) => r.title === repo)) continue;
+        out.push({
+          source: "GitHub", title: repo, url: `https://github.com/${repo}`,
+          summary: decode(row.match(/<p class="[^"]*">([\s\S]*?)<\/p>/)?.[1] || ""),
+          stars: Number((row.match(/([\d,]+) stars today/)?.[1] || "0").replace(/,/g, "")),
         });
       }
     } catch (e) {
       console.error("trending", lang, e?.message || e);
     }
   }
-  all.sort((a, b) => b.today - a.today);
-  const out = [];
-  for (const r of all) {
-    if (out.length >= cfg().github.top) break;
-    if (await fresh(env, `gh:${r.repo}`)) out.push(r);
-  }
-  return out.map((r) => ({
-    source: "GitHub", title: r.repo, url: `https://github.com/${r.repo}`, summary: r.desc,
-    line: `${r.repo} · +${r.today.toLocaleString("es-ES")}★ hoy${r.lang ? ` · ${r.lang}` : ""}`,
-  }));
-}
-
-async function hackerNews(env) {
-  const { hits } = await get("https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=40", "json");
-  const out = [];
-  for (const h of hits.sort((a, b) => b.points - a.points)) {
-    if (out.length >= cfg().hn.top || h.points < cfg().hn.minPoints) break;
-    if (!(await fresh(env, `hn:${h.objectID}`, 3))) continue;
-    const url = h.url || `https://news.ycombinator.com/item?id=${h.objectID}`;
-    out.push({ source: "Hacker News", title: h.title, url, summary: "", line: `${h.title} (${h.points} pts)` });
-  }
   return out;
 }
 
-async function productHunt(env) {
-  const items = parseFeed(await get("https://www.producthunt.com/feed"));
-  const out = [];
-  for (const i of items) {
-    if (out.length >= cfg().producthunt.top) break;
-    if (await fresh(env, `ph:${i.url}`)) out.push({ ...i, source: "Product Hunt", line: i.title });
+async function fromProductHunt() {
+  return parseFeed(await get("https://www.producthunt.com/feed")).slice(0, 10).map((i) => ({ ...i, source: "Product Hunt" }));
+}
+
+const STOP = new Set(("the and for with from that this your into about what how why new now are was has have will you its our " +
+  "los las del una para con por que como más sobre").split(" "));
+
+// Palabras que identifican el tema: "Claude Haiku 5.5" y "/news/claude-haiku-5-5" comparten {claude, haiku}.
+export function topicWords(it) {
+  const slug = it.url.split(/[?#]/)[0].split("/").filter(Boolean).pop() || "";
+  return new Set(`${it.title} ${slug.replace(/[-_]/g, " ")}`.toLowerCase().split(/[^a-z0-9áéíóúñ]+/)
+    .filter((w) => (w.length >= 4 || /\d/.test(w)) && !STOP.has(w)));
+}
+
+const sameTopic = (a, b) => {
+  if (a.url === b.url) return true;
+  let shared = 0;
+  for (const w of a.words) if (b.words.has(w) && !/^\d+$/.test(w)) shared++;
+  return shared >= 2;
+};
+
+// Temperatura de todo el pool. Los ecos (mismo tema en otras fuentes) salen de un índice por palabra:
+// comparar todos con todos no cabe en los 10 ms de CPU de la capa gratuita.
+export function scoreAll(list) {
+  const index = new Map();
+  for (const it of list) {
+    it.words = topicWords(it);
+    for (const w of it.words) if (!/^\d+$/.test(w)) (index.get(w) || index.set(w, []).get(w)).push(it);
   }
-  return out;
-}
-
-// Lo que llega cada hora de las fuentes de lectura se acumula aquí y sale en el radar.
-async function takeReading(env, max = 6) {
-  const buf = (await env.FILES.get("social:reading", { type: "json" })) || [];
-  // Alternando fuentes para que no salgan 6 del mismo blog.
-  const bySource = new Map();
-  for (const i of buf) (bySource.get(i.source) || bySource.set(i.source, []).get(i.source)).push(i);
-  const out = [];
-  while (out.length < max && [...bySource.values()].some((l) => l.length)) {
-    for (const l of bySource.values()) if (l.length && out.length < max) out.push(l.shift());
+  for (const it of list) {
+    const shared = new Map();
+    for (const w of it.words) for (const o of index.get(w) || []) if (o !== it) shared.set(o, (shared.get(o) || 0) + 1);
+    const echoes = [...shared].filter(([o, c]) => c >= 2 || o.url === it.url).map(([o]) => o.source);
+    it.echoes = [...new Set(echoes)].filter((src) => src !== it.source);
+    Object.assign(it, heat(it));
   }
-  await env.FILES.delete("social:reading");
-  return out.map((i) => ({ ...i, line: `${i.title} · ${i.source}` }));
+  for (const it of list) delete it.words;
+  return list;
 }
 
-function planLine(date) {
-  const p = cfg().plan[weekday(date)];
-  return p ? `Hoy toca: ${p}` : "Hoy no toca nada fijo: responde a 5–10 posts de cuentas grandes.";
+// Temperatura: 0 = nada, ~100 = lo que todo el mundo está comentando.
+export function heat(it) {
+  let h = 0;
+  const signals = [];
+  if (it.hn) {
+    h += Math.min(60, it.hn.points / (it.hn.ageH + 2));
+    signals.push(`HN ${it.hn.points} pts en ${Math.round(it.hn.ageH)} h`);
+  }
+  if (it.stars) {
+    h += Math.min(50, it.stars / 150);
+    signals.push(`+${it.stars.toLocaleString("es-ES")}★ hoy en GitHub`);
+  }
+  const ageH = (Date.now() - it.first) / HOUR;
+  if (it.official && ageH < 12) {
+    h += 35;
+    signals.push(`publicado por ${it.source} hace ${Math.max(1, Math.round(ageH))} h`);
+  } else if (!it.hn && !it.stars) h += 5;
+  const echoes = it.echoes || [];
+  if (echoes.length) {
+    h += 25 * Math.min(3, echoes.length);
+    signals.push(`también en ${echoes.join(", ")}`);
+  }
+  return { heat: Math.round(h), signals };
 }
 
-export async function morningSocial(env) {
-  if (!cfg() || !env.OWNER_CHAT_ID) return;
-  const { date } = nowMadrid();
-  const sections = [
-    ["⭐ GitHub Trending", githubTrending],
-    ["🔥 Hacker News", hackerNews],
-    ["🚀 Product Hunt", productHunt],
-    ["📰 Para leer", takeReading],
+// Junta todo en el pool (48 h). La 1ª vez de cada fuente marca lo que ya había como antiguo.
+async function refreshPool(env, hour) {
+  const pool = await kvJson(env, "social:pool", {});
+  const known = await kvJson(env, "social:known", {}); // fuentes ya leídas alguna vez
+  const seen = new Set(await kvJson(env, "social:seenurls", [])); // URLs que ya pasaron por el pool
+  const batches = [
+    ["feeds", fromFeeds], ["hn", fromHackerNews], ["ph", fromProductHunt],
+    // GitHub Trending por lenguajes cuando el cron no tiene otro trabajo (cuidando las 50 peticiones).
+    ["gh", () => fromGitHub(hour % 3 === 2 ? cfg().github.languages : [""])],
   ];
-  const ids = [];
-  const blocks = [];
-  for (const [title, fn] of sections) {
+  const now = Date.now();
+  for (const [name, fn] of batches) {
     let items = [];
     try {
-      items = await fn(env);
+      items = await fn();
     } catch (e) {
-      console.error("radar", title, e?.message || e);
+      console.error("pool", name, e?.message || e);
+      continue;
     }
-    if (!items.length) continue;
-    const lines = [];
     for (const it of items) {
-      ids.push(await remember(env, it));
-      lines.push(`${ids.length}. ${short(it.line, 90)}${it.summary && it.source === "GitHub" ? `\n   ${short(it.summary, 110)}` : ""}\n   ${it.url}`);
+      const key = it.url;
+      const old = pool[key];
+      // Si el feed trae fecha, manda. Si no: lo que ya estaba la primera vez que se lee una fuente,
+      // o lo que salió del pool, cuenta como antiguo.
+      const isOld = !known[it.source] || (!old && seen.has(key));
+      const first = old?.first ?? (it.date ? Math.min(it.date, now) : isOld ? now - 3 * DAY * 1000 : now);
+      pool[key] = { ...old, ...it, key, first };
+      seen.add(key);
     }
-    blocks.push(`${title}\n${lines.join("\n")}`);
+    for (const s of new Set(items.map((i) => i.source))) known[s] = true;
   }
-  await env.FILES.put(`social:radar:${date}`, JSON.stringify(ids), { expirationTtl: 3 * DAY });
-
-  const text = `📡 Radar · ${dayLabel(date)}\n${planLine(date)}\n\n` +
-    (blocks.length ? blocks.join("\n\n") : "Hoy no hay nada nuevo en las fuentes.") +
-    `\n\n✍️ /cita N → borrador para citarlo o comentarlo\n⭐ /guardar N → al hilo del viernes`;
-  await send(env, text, { link_preview_options: { is_disabled: true } });
-  await env.FILES.put(`social:radartext:${date}`, text, { expirationTtl: 2 * DAY });
-
-  if (weekday(date) === 1) {
-    try {
-      await madridEvents(env);
-    } catch (e) {
-      console.error("eventos", e?.message || e);
-    }
+  // Fuera lo de más de 48 h, salvo lo que sigue en portada de HN o en Trending.
+  for (const [k, it] of Object.entries(pool)) {
+    const stale = now - it.first > 2 * DAY * 1000 && !(it.hn && it.hn.ageH < 24) && !it.stars;
+    if (stale) delete pool[k];
   }
+  const list = scoreAll(Object.values(pool));
+  await env.FILES.put("social:pool", JSON.stringify(pool), { expirationTtl: 3 * DAY });
+  await env.FILES.put("social:known", JSON.stringify(known));
+  await env.FILES.put("social:seenurls", JSON.stringify([...seen].slice(-1500)));
+  return list;
 }
 
-// ---------- eventos tech en Madrid (lunes) ----------
+// Lo más caliente sin repetir tema ni lo ya avisado.
+async function hottest(env, list, n) {
+  const used = new Set(await kvJson(env, "social:used", []));
+  const out = [];
+  for (const it of [...list].sort((a, b) => b.heat - a.heat)) {
+    if (out.length >= n) break;
+    if (used.has(it.key) || it.first < Date.now() - 2 * DAY * 1000 && !it.hn && !it.stars) continue;
+    it.words = topicWords(it);
+    if (out.some((o) => sameTopic(o, it))) continue;
+    out.push(it);
+  }
+  for (const it of out) delete it.words;
+  return out;
+}
+
+// ---------- decidir si avisar ----------
+
+async function maybeSuggest(env, list, now) {
+  const c = cfg().cadence;
+  const hour = Number(now.time.slice(0, 2));
+  if (hour >= c.quiet[0] || hour < c.quiet[1]) return; // de noche no
+
+  const state = await kvJson(env, "social:cadence", { last: 0, day: null, count: 0 });
+  if (state.day !== now.date) Object.assign(state, { day: now.date, count: 0 });
+  const since = (Date.now() - state.last) / HOUR;
+  if (state.count >= c.maxPerDay) return;
+
+  const top = await hottest(env, list, 12);
+  if (!top.length) return;
+  // Sin cambios en lo más caliente desde la última vez: no hace falta volver a preguntar a la IA.
+  const sig = top.map((t) => `${t.key}:${Math.round(t.heat / 10)}`).join("|");
+  if (sig === state.sig && since < c.maxHours) return;
+  state.sig = sig;
+
+  const listing = top.map((t, i) =>
+    `${i + 1}. [${t.source}] ${t.title}${t.summary ? ` — ${short(t.summary, 140)}` : ""} (temperatura ${t.heat}; ${t.signals.join("; ") || "sin señales"})`).join("\n");
+  let j;
+  try {
+    j = await aiJson(env,
+      `Ayudas a ${cfg().voice} a decidir si hay algo sobre lo que merezca publicar en X AHORA. ` +
+      "Merece la pena: lanzamientos importantes de IA o herramientas de desarrollo, cosas que se están comentando mucho " +
+      "(temperatura alta, varias fuentes a la vez) y temas que encajan con lo suyo (IA, agentes, Rust, apps nativas, startups, Madrid). " +
+      "No merece la pena: notas corporativas menores (clientes, alianzas, casos de éxito), contenido genérico o repetido. " +
+      'Responde SOLO con JSON: {"pick": número o null, "score": 0-10, "urgent": true si es algo gordo que no puede esperar a mañana, ' +
+      '"why": "por qué ahora, una frase con las señales", "angle": "qué podría aportar él en su post, una frase"}',
+      listing, 400);
+  } catch (e) {
+    console.error("juez", e?.message || e);
+    await env.FILES.put("social:cadence", JSON.stringify(state));
+    return;
+  }
+  const pick = top[Number(j.pick) - 1];
+  const score = Number(j.score) || 0;
+  const urgent = j.urgent === true || j.urgent === "true";
+  const bar = since >= c.maxHours ? c.lateScore : since >= c.minHours ? c.minScore : urgent ? c.urgentScore : Infinity;
+  await env.FILES.put("social:cadence", JSON.stringify(state));
+  if (!pick || score < bar) return;
+
+  const n = await remember(env, { ...pick, why: j.why, angle: j.angle });
+  const used = await kvJson(env, "social:used", []);
+  await env.FILES.put("social:used", JSON.stringify([...used, pick.key].slice(-200)), { expirationTtl: 7 * DAY });
+  Object.assign(state, { last: Date.now(), count: state.count + 1 });
+  await env.FILES.put("social:cadence", JSON.stringify(state));
+
+  const head = urgent ? "🔥 Esto se está moviendo ahora" : "💡 Hay tema para post";
+  await send(env,
+    `${head}: ${pick.title}\n\n` +
+    (j.why ? `Por qué ahora: ${j.why}\n` : "") +
+    (pick.signals.length ? `Señales: ${pick.signals.join(" · ")}\n` : "") +
+    (j.angle ? `Tu ángulo: ${j.angle}\n` : "") +
+    `\n${pick.url}`, {
+      reply_markup: { inline_keyboard: [
+        [{ text: "✍️ Borrador", callback_data: `xd:${n}` }, { text: "⭐ Guardar", callback_data: `xs:${n}` }],
+        [{ text: "✅ Publicado", callback_data: `xy:${n}` }, { text: "⏭ Paso", callback_data: `xn:${n}` }],
+      ] },
+    });
+}
+
+// ---------- eventos tech en Madrid (una vez al día, solo los nuevos) ----------
 
 function nextData(html) {
   const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
@@ -255,8 +364,7 @@ async function lumaEvents(city) {
     const e = o.event;
     out.push({
       title: e.name, url: `https://lu.ma/${e.url}`, start: e.start_at, end: e.end_at,
-      where: e.geo_address_info?.address || e.geo_address_info?.city || "",
-      host: o.calendar?.name || "",
+      where: e.geo_address_info?.address || e.geo_address_info?.city || "", host: o.calendar?.name || "",
     });
     return true;
   });
@@ -270,7 +378,7 @@ async function meetupEvents(keyword) {
     if (o.__typename !== "Event" || !o.title || !o.dateTime || !o.eventUrl) return false;
     const start = new Date(o.dateTime).toISOString();
     out.push({
-      title: o.title, url: o.eventUrl, start, end: new Date(Date.parse(start) + 2 * 3600e3).toISOString(),
+      title: o.title, url: o.eventUrl, start, end: new Date(Date.parse(start) + 2 * HOUR).toISOString(),
       where: o.venue?.name === "Online event" ? "online" : o.venue?.name || "", host: o.group?.name || "",
     });
     return true;
@@ -280,7 +388,7 @@ async function meetupEvents(keyword) {
 
 export async function madridEvents(env) {
   const ev = cfg().events;
-  let all = [];
+  const all = [];
   try {
     all.push(...(await lumaEvents(ev.luma)));
   } catch (e) {
@@ -293,36 +401,36 @@ export async function madridEvents(env) {
       console.error("meetup", k, e?.message || e);
     }
   }
+  const seen = new Set(await kvJson(env, "social:events", []));
+  const first = seen.size === 0;
   const now = Date.now();
-  const until = now + 14 * DAY * 1000;
-  const urls = new Set();
-  all = all.filter((e) => {
-    const t = Date.parse(e.start);
-    if (t < now || t > until || urls.has(e.url)) return false;
-    urls.add(e.url);
-    return true;
-  });
   const candidates = [];
-  for (const e of all) if (await fresh(env, `ev:${e.url}`, 30)) candidates.push(e);
+  for (const e of all) {
+    const t = Date.parse(e.start);
+    if (seen.has(e.url) || t < now || t > now + 21 * DAY * 1000) continue;
+    seen.add(e.url);
+    candidates.push(e);
+  }
+  await env.FILES.put("social:events", JSON.stringify([...seen].slice(-500)));
   if (!candidates.length) return;
 
   // La IA separa lo tech de lo demás (Luma Madrid mezcla catas, yoga y fiestas).
-  let keep = candidates.map((_, i) => i);
+  let keep = [];
   try {
-    const list = candidates.map((e, i) => `${i + 1}. ${e.title}${e.host ? ` · ${e.host}` : ""}`).join("\n");
+    const list = candidates.map((e, i) => `${i + 1}. ${e.title}${e.host ? ` · ${e.host}` : ""}${e.where === "online" ? " (online)" : ""}`).join("\n");
     const j = await aiJson(env,
       "Filtras eventos para un estudiante de Ingeniería Informática que ha cofundado un estudio de software en Madrid. " +
-      "Interesan: tecnología, programación, IA, datos, ciberseguridad, startups, emprendimiento, producto, diseño digital, " +
-      "inversión, hackathons y comunidades tech. No interesan: ocio, deporte, idiomas, arte, bienestar, citas, fiestas ni clases de otras cosas. " +
-      'Responde SOLO con JSON: {"keep":[números de la lista que interesan]}',
+      "Interesan, y solo si son presenciales en Madrid: tecnología, programación, IA, datos, ciberseguridad, startups, emprendimiento, " +
+      "producto, inversión, hackathons y comunidades tech. No interesan: ocio, deporte, idiomas, arte, bienestar, citas, fiestas, " +
+      'cursos de pago ni eventos online. Responde SOLO con JSON: {"keep":[números de la lista que interesan]}',
       list, 300);
-    if (Array.isArray(j.keep)) keep = j.keep.map((n) => Number(n) - 1).filter((i) => candidates[i]);
+    if (Array.isArray(j.keep)) keep = j.keep.map((n) => candidates[Number(n) - 1]).filter(Boolean);
   } catch (e) {
     console.error("filtro eventos", e?.message || e);
+    return;
   }
-  const picked = keep.map((i) => candidates[i]).sort((a, b) => a.start.localeCompare(b.start)).slice(0, 10);
-  if (!picked.length) return;
-
+  if (first || !keep.length) return; // la primera vez solo se aprende lo que ya había
+  const picked = keep.sort((a, b) => a.start.localeCompare(b.start)).slice(0, 5);
   const lines = [];
   const buttons = [];
   for (const [i, e] of picked.entries()) {
@@ -331,110 +439,26 @@ export async function madridEvents(env) {
     lines.push(`${i + 1}. ${dayLabel(start.slice(0, 10))} ${start.slice(11)} · ${short(e.title, 80)}${e.where ? `\n   📍 ${short(e.where, 60)}` : ""}\n   ${e.url}`);
     buttons.push({ text: `➕ ${i + 1}`, callback_data: `xe:${n}` });
   }
-  const rows = [];
-  for (let i = 0; i < buttons.length; i += 5) rows.push(buttons.slice(i, i + 5));
   await send(env,
-    `📍 Eventos tech en Madrid (próximas 2 semanas)\n\n${lines.join("\n")}\n\n➕ lo añade a tu calendario; al acabar te pregunto si da para post.`,
-    { reply_markup: { inline_keyboard: rows }, link_preview_options: { is_disabled: true } });
-}
-
-// ---------- cada hora ----------
-
-// Fuentes con `alert`: aviso en el momento. El resto se guarda para el radar de la mañana.
-async function watchFeeds(env) {
-  const reading = (await env.FILES.get("social:reading", { type: "json" })) || [];
-  for (const src of cfg().feeds) {
-    let items;
-    try {
-      items = (await readSource(src)).slice(0, 30); // las más recientes; hay feeds con cientos
-    } catch (e) {
-      console.error("feed", src.name, e?.message || e);
-      continue;
-    }
-    const key = `social:feed:${src.name}`;
-    const seen = await env.FILES.get(key, { type: "json" });
-    const urls = items.map((i) => i.url);
-    await env.FILES.put(key, JSON.stringify([...new Set([...urls, ...(seen || [])])].slice(0, 120)));
-    if (!seen) continue; // primera vez: solo se aprende qué hay, sin avisar de todo lo antiguo
-    const news = items.filter((i) => !seen.includes(i.url)).slice(0, 3);
-    for (const it of news) {
-      const item = { ...it, source: src.name };
-      if (!src.alert) {
-        reading.push(item);
-        continue;
-      }
-      const n = await remember(env, item);
-      await send(env, `🆕 ${src.name}: ${it.title}${it.summary ? `\n\n${short(it.summary, 240)}` : ""}\n\n${it.url}\n\nEn X suele salir a la vez: cítalo o responde con tu opinión.`, {
-        reply_markup: { inline_keyboard: [[
-          { text: "✍️ Borrador", callback_data: `xd:${n}` },
-          { text: "⭐ Para el viernes", callback_data: `xs:${n}` },
-        ]] },
-      });
-    }
-  }
-  await env.FILES.put("social:reading", JSON.stringify(reading.slice(-40)), { expirationTtl: 3 * DAY });
+    `📍 ${picked.length === 1 ? "Nuevo evento tech" : "Nuevos eventos tech"} en Madrid\n\n${lines.join("\n")}\n\n➕ lo añade a tu calendario; al acabar te pregunto si da para post.`,
+    { reply_markup: { inline_keyboard: [buttons] }, ...noPreview });
 }
 
 // Eventos del calendario que acaban de terminar → "¿da para post?"
 async function eventFollowups(env, now) {
-  const from = addMinutes(now, -75);
   const to = `${now.date}T${now.time}`;
+  const from = new Date(Date.parse(to + ":00Z") - 75 * 60e3).toISOString().slice(0, 16);
   const { results } = await env.DB.prepare(
-    "SELECT id, text, end_at FROM items WHERE kind='evento' AND end_at > ? AND end_at <= ?"
+    "SELECT id, text FROM items WHERE kind='evento' AND end_at > ? AND end_at <= ?"
   ).bind(from, to).all();
   for (const ev of results) {
-    if (!(await fresh(env, `evt:${ev.id}`, 7))) continue;
+    const k = `social:evt:${ev.id}`;
+    if (await env.FILES.get(k)) continue;
+    await env.FILES.put(k, "1", { expirationTtl: 7 * DAY });
     await send(env,
       `🎤 ¿Qué tal «${ev.text}»?\n\nSi da para post, mándame:\n/post lo que te llevas (una idea, alguien que conociste, un dato)\n\n` +
       "y te preparo dos versiones. Con una foto tuya del evento funciona mucho mejor; etiqueta a quien organiza.");
   }
-}
-
-function addMinutes({ date, time }, min) {
-  const t = Date.parse(`${date}T${time}:00Z`) + min * 60e3;
-  return new Date(t).toISOString().slice(0, 16);
-}
-
-async function postedCheck(env, date) {
-  if (!(await fresh(env, `asked:${date}`, 2))) return;
-  await send(env, "🧭 ¿Has publicado hoy en X? (un post, un hilo o una cita; las respuestas cuentan si son buenas)", {
-    reply_markup: { inline_keyboard: [[
-      { text: "✅ Sí", callback_data: "xy:0" },
-      { text: "😴 Hoy no", callback_data: "xn:0" },
-    ]] },
-  });
-}
-
-async function fridayThread(env, date) {
-  if (!(await fresh(env, `thread:${date}`, 2))) return;
-  const ids = (await env.FILES.get("social:saved", { type: "json" })) || [];
-  const items = (await Promise.all(ids.map((n) => recall(env, n)))).filter(Boolean);
-  if (items.length < 2) {
-    await send(env, "🧵 Hoy toca el hilo de la semana, pero has guardado " +
-      (items.length ? "solo una cosa" : "nada") + ". Mira el radar y guarda 3–5 con /guardar N o con ⭐ en los avisos.");
-    return;
-  }
-  const list = items.map((i, k) => `${k + 1}. [${i.source}] ${i.title} — ${i.summary || ""} (${i.url})`).join("\n");
-  let tweets;
-  try {
-    const j = await aiJson(env, voiceRules() +
-      "Escribe un hilo para X: \"Lo que ha pasado esta semana en IA y desarrollo y merece la pena\". " +
-      "Primer post: gancho corto sin enlaces. Luego UN post por cada elemento de la lista, con una opinión breve y el enlace al final. " +
-      "Último post: cierre preguntando qué se me ha escapado. Cada post de 270 caracteres como mucho. " +
-      'Responde SOLO con JSON: {"posts":["…","…"]}', list, 1800);
-    tweets = Array.isArray(j.posts) ? j.posts.filter((t) => typeof t === "string" && t.trim()) : null;
-  } catch (e) {
-    console.error("hilo", e?.message || e);
-  }
-  if (!tweets?.length) {
-    await send(env, `🧵 No he podido escribir el hilo. Esto es lo que guardaste:\n\n${list}`, { link_preview_options: { is_disabled: true } });
-    return;
-  }
-  await send(env, `🧵 Borrador del hilo de la semana (${tweets.length} posts). Cópialos en orden; edita lo que no suene a ti.`);
-  for (const [k, t] of tweets.entries()) {
-    await send(env, `${k + 1}/${tweets.length}\n${t.trim()}`, { link_preview_options: { is_disabled: true } });
-  }
-  await env.FILES.delete("social:saved");
 }
 
 export async function hourlySocial(env) {
@@ -442,10 +466,9 @@ export async function hourlySocial(env) {
   const now = nowMadrid();
   const hour = Number(now.time.slice(0, 2));
   const jobs = [
-    ["feeds", () => watchFeeds(env)],
-    ["eventos", () => eventFollowups(env, now)],
-    ["publicado", () => hour === cfg().checkHour && postedCheck(env, now.date)],
-    ["hilo", () => hour === 9 && weekday(now.date) === 5 && fridayThread(env, now.date)],
+    ["pool", async () => maybeSuggest(env, await refreshPool(env, hour), now)],
+    ["eventos", () => hour === cfg().events.hour && madridEvents(env)],
+    ["fin de evento", () => eventFollowups(env, now)],
   ];
   for (const [name, job] of jobs) {
     try {
@@ -456,7 +479,7 @@ export async function hourlySocial(env) {
   }
 }
 
-// ---------- borradores ----------
+// ---------- borradores y comandos ----------
 
 function voiceRules() {
   return `Escribes en nombre de ${cfg().voice} ` +
@@ -477,101 +500,137 @@ async function sendDrafts(env, chatId, header, context, extra = "") {
     await tg(env, "sendMessage", { chat_id: chatId, text: "⚠️ No he podido escribir el borrador ahora. Prueba otra vez en un momento." });
     return;
   }
-  await tg(env, "sendMessage", { chat_id: chatId, text: header, link_preview_options: { is_disabled: true } });
+  await tg(env, "sendMessage", { chat_id: chatId, text: header, ...noPreview });
   for (const [label, t] of [["A", j.a], ["B", j.b]]) {
     if (typeof t === "string" && t.trim()) await tg(env, "sendMessage", { chat_id: chatId, text: `${label} · ${t.trim().length} caracteres\n\n${t.trim()}` });
   }
 }
 
 async function quoteDrafts(env, chatId, item) {
-  const context = `Fuente: ${item.source}\nTítulo: ${item.title}\n${item.summary ? `Resumen: ${item.summary}\n` : ""}Enlace: ${item.url}`;
-  await sendDrafts(env, chatId, `✍️ Para citar o comentar: ${item.title}\n🔗 ${item.url}\nAbre el post original en X y usa "Citar"; si no lo encuentras, publica el comentario con el enlace en la primera respuesta.`,
+  const context = `Fuente: ${item.source}\nTítulo: ${item.title}\n${item.summary ? `Resumen: ${item.summary}\n` : ""}` +
+    `${item.signals?.length ? `Señales: ${item.signals.join("; ")}\n` : ""}${item.angle ? `Ángulo sugerido: ${item.angle}\n` : ""}Enlace: ${item.url}`;
+  await sendDrafts(env, chatId,
+    `✍️ ${item.title}\n🔗 ${item.url}\nSi hay post original en X, usa "Citar" con uno de estos; si no, publícalo con el enlace en la primera respuesta.`,
     context,
-    "Vas a escribir el comentario que acompaña una cita (quote) de esta noticia, repo o lanzamiento. La cita ya enseña el enlace: no lo repitas ni la resumas entera; " +
+    "Vas a escribir el comentario que acompaña una cita (quote) o un post sobre esta noticia, repo o lanzamiento. No repitas el enlace ni la resumas entera; " +
     "aporta algo: una consecuencia, un contrapunto o para quién es útil. ");
 }
 
-// /post, /cita N, /guardar N, /radar. Devuelve true si el mensaje era suyo.
+// /post, /radar, /cita N, /guardar N, /hilo. Devuelve true si el mensaje era suyo.
 export async function socialCommand(env, chatId, text) {
   if (!cfg()) return false;
   const [cmd, ...rest] = text.split(/\s+/);
   const arg = rest.join(" ").trim();
-  const { date } = nowMadrid();
-  const todayItem = async (n) => {
-    const ids = (await env.FILES.get(`social:radar:${date}`, { type: "json" })) || [];
-    return ids[n - 1] ? { id: ids[n - 1], item: await recall(env, ids[n - 1]) } : null;
-  };
+  const reply = (t, extra = {}) => tg(env, "sendMessage", { chat_id: chatId, text: t.slice(0, 4000), ...extra });
 
   if (cmd === "/post") {
-    if (!arg) {
-      await tg(env, "sendMessage", { chat_id: chatId, text: "Dime de qué va: /post he ido al meetup de X, enseñaron Y y me quedo con Z" });
-      return true;
-    }
-    await sendDrafts(env, chatId, "✍️ Dos versiones. Copia la que más te guste y retócala:", arg);
-    return true;
-  }
-  if (cmd === "/cita" || cmd === "/guardar") {
-    const found = await todayItem(Number(arg));
-    if (!found?.item) {
-      await tg(env, "sendMessage", { chat_id: chatId, text: `No encuentro el ${arg || "número"} en el radar de hoy. Usa el número de la lista, p. ej. ${cmd} 3.` });
-      return true;
-    }
-    if (cmd === "/cita") await quoteDrafts(env, chatId, found.item);
-    else await tg(env, "sendMessage", { chat_id: chatId, text: await save(env, found.id, found.item) });
+    if (!arg) await reply("Dime de qué va: /post he ido al meetup de X, enseñaron Y y me quedo con Z");
+    else await sendDrafts(env, chatId, "✍️ Dos versiones. Copia la que más te guste y retócala:", arg);
     return true;
   }
   if (cmd === "/radar") {
-    const t = await env.FILES.get(`social:radartext:${date}`);
-    await tg(env, "sendMessage", { chat_id: chatId, text: t || "El radar de hoy aún no ha salido (llega con los buenos días).", link_preview_options: { is_disabled: true } });
+    const pool = Object.values(await kvJson(env, "social:pool", {}));
+    const top = await hottest(env, pool, 10);
+    if (!top.length) {
+      await reply("Aún no hay nada en el radar (se llena cada hora).");
+      return true;
+    }
+    const ids = [];
+    const lines = [];
+    for (const [i, t] of top.entries()) {
+      ids.push(await remember(env, t));
+      lines.push(`${i + 1}. 🌡${t.heat} ${short(t.title, 80)} · ${t.source}${t.signals.length ? `\n   ${t.signals.join(" · ")}` : ""}\n   ${t.url}`);
+    }
+    await env.FILES.put("social:radar", JSON.stringify(ids), { expirationTtl: 2 * DAY });
+    await reply(`📡 Lo más caliente ahora\n\n${lines.join("\n")}\n\n✍️ /cita N → borrador · ⭐ /guardar N → para un hilo`, noPreview);
+    return true;
+  }
+  if (cmd === "/cita" || cmd === "/guardar") {
+    const ids = await kvJson(env, "social:radar", []);
+    const n = ids[Number(arg) - 1];
+    const item = n && await recall(env, n);
+    if (!item) await reply(`Primero /radar y luego ${cmd} con el número de la lista, p. ej. ${cmd} 3.`);
+    else if (cmd === "/cita") await quoteDrafts(env, chatId, item);
+    else await reply(await save(env, n, item));
+    return true;
+  }
+  if (cmd === "/hilo") {
+    await threadDraft(env, chatId);
     return true;
   }
   return false;
 }
 
 async function save(env, n, item) {
-  const ids = (await env.FILES.get("social:saved", { type: "json" })) || [];
+  const ids = await kvJson(env, "social:saved", []);
   if (!ids.includes(n)) ids.push(n);
-  await env.FILES.put("social:saved", JSON.stringify(ids.slice(-12)), { expirationTtl: 14 * DAY });
-  return `⭐ Guardado para el hilo del viernes (${ids.length}): ${short(item.title, 80)}`;
+  await env.FILES.put("social:saved", JSON.stringify(ids.slice(-12)), { expirationTtl: 30 * DAY });
+  return `⭐ Guardado (${ids.length}): ${short(item.title, 80)}. Con 3 o más, /hilo te escribe un hilo.`;
 }
 
-// Botones: xd (borrador de cita), xs (guardar), xe (evento al calendario), xy / xn (¿has publicado?).
+async function threadDraft(env, chatId) {
+  const ids = await kvJson(env, "social:saved", []);
+  const items = (await Promise.all(ids.map((n) => recall(env, n)))).filter(Boolean);
+  if (items.length < 2) {
+    await tg(env, "sendMessage", { chat_id: chatId, text: "Guarda al menos 2–3 cosas con ⭐ (en los avisos o con /guardar N desde /radar) y te escribo el hilo." });
+    return;
+  }
+  await tg(env, "sendChatAction", { chat_id: chatId, action: "typing" });
+  const list = items.map((i, k) => `${k + 1}. [${i.source}] ${i.title} — ${i.summary || ""} (${i.url})`).join("\n");
+  let posts;
+  try {
+    const j = await aiJson(env, voiceRules() +
+      "Escribe un hilo para X sobre lo más interesante que ha pasado últimamente en IA y desarrollo. " +
+      "Primer post: gancho corto sin enlaces. Luego UN post por cada elemento de la lista, con una opinión breve y el enlace al final. " +
+      "Último post: cierre preguntando qué se me ha escapado. Cada post de 270 caracteres como mucho. " +
+      'Responde SOLO con JSON: {"posts":["…","…"]}', list, 1800);
+    posts = Array.isArray(j.posts) ? j.posts.filter((t) => typeof t === "string" && t.trim()) : null;
+  } catch (e) {
+    console.error("hilo", e?.message || e);
+  }
+  if (!posts?.length) {
+    await tg(env, "sendMessage", { chat_id: chatId, text: `⚠️ No he podido escribir el hilo. Lo guardado:\n\n${list}`.slice(0, 4000), ...noPreview });
+    return;
+  }
+  await tg(env, "sendMessage", { chat_id: chatId, text: `🧵 Hilo (${posts.length} posts). Cópialos en orden y edita lo que no suene a ti.` });
+  for (const [k, t] of posts.entries()) {
+    await tg(env, "sendMessage", { chat_id: chatId, text: `${k + 1}/${posts.length}\n${t.trim()}`, ...noPreview });
+  }
+  await env.FILES.delete("social:saved");
+}
+
+// Botones: xd (borrador), xs (guardar), xy (publicado), xn (paso), xe (evento al calendario).
 export async function socialCallback(env, cb, action, n) {
   const chatId = cb.message.chat.id;
+  const item = await recall(env, n);
   let notice = "";
-  if (action === "xy" || action === "xn") {
+  if (!item) notice = "Esto ya ha caducado";
+  else if (action === "xd") {
+    await tg(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "✍️ Escribiendo…" });
+    await quoteDrafts(env, chatId, item);
+    return;
+  } else if (action === "xs") {
+    notice = "⭐ Guardado";
+    await tg(env, "sendMessage", { chat_id: chatId, text: await save(env, n, item) });
+  } else if (action === "xy" || action === "xn") {
     const { date } = nowMadrid();
-    const s = (await env.FILES.get("social:streak", { type: "json" })) || { n: 0, last: null };
-    if (action === "xy" && s.last !== date) {
-      s.n = s.last === addDays(date, -1) ? s.n + 1 : 1;
+    const s = await kvJson(env, "social:streak", { posts: 0, last: null });
+    if (action === "xy") {
+      s.posts += 1;
       s.last = date;
-    } else if (action === "xn") {
-      s.n = 0;
     }
     await env.FILES.put("social:streak", JSON.stringify(s));
-    notice = action === "xy" ? `🔥 Racha: ${s.n} ${s.n === 1 ? "día" : "días"}` : "Mañana más. Racha a 0.";
-    await tg(env, "editMessageText", { chat_id: chatId, message_id: cb.message.message_id, text: notice });
-  } else {
-    const item = await recall(env, n);
-    if (!item) notice = "Esto ya ha caducado";
-    else if (action === "xd") {
-      notice = "✍️ Escribiendo…";
-      await tg(env, "answerCallbackQuery", { callback_query_id: cb.id, text: notice });
-      await quoteDrafts(env, chatId, item);
-      return;
-    } else if (action === "xs") {
-      notice = "⭐ Guardado";
-      await tg(env, "sendMessage", { chat_id: chatId, text: await save(env, n, item) });
-    } else if (action === "xe") {
-      notice = await addEvent(env, chatId, item);
-    }
+    notice = action === "xy" ? `✅ Apuntado (${s.posts} posts desde que llevo la cuenta)` : "⏭ Vale, te aviso con lo siguiente";
+    await tg(env, "editMessageReplyMarkup", { chat_id: chatId, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [] } });
+  } else if (action === "xe") {
+    notice = await addEvent(env, chatId, item);
   }
   await tg(env, "answerCallbackQuery", { callback_query_id: cb.id, text: notice });
 }
 
 async function addEvent(env, chatId, e) {
   const start = madridLocal(e.start);
-  const end = madridLocal(e.end || new Date(Date.parse(e.start) + 2 * 3600e3).toISOString());
+  const end = madridLocal(e.end || new Date(Date.parse(e.start) + 2 * HOUR).toISOString());
   const exists = await env.DB.prepare("SELECT id FROM items WHERE kind='evento' AND url=?").bind(e.url).first();
   if (exists) return "Ya estaba en tu calendario";
   const date = start.slice(0, 10);

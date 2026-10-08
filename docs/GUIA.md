@@ -31,20 +31,15 @@ Si algo falla, el bot lo dice en vez de quedarse callado.
 
 ## Asistente de X
 
-Nunca publica: avisa de qué hay y de cuándo toca, y escribe borradores que copias a mano. Código en `src/social.js`; fuentes, plan semanal y "voz" en `config.js` (`social`).
+No publica nada ni va por horarios: te avisa cuando hay algo que merece un post y te escribe borradores. Código en `src/social.js`; fuentes, cadencia y "voz" en `config.js` (`social`).
 
-| Cuándo | Qué llega por Telegram |
-|---|---|
-| 8:00, después de los buenos días | 📡 Radar: GitHub Trending, Hacker News, Product Hunt y lo nuevo de las fuentes de lectura, numerado, y qué formato toca hoy |
-| Lunes a las 8:00 | 📍 Eventos tech en Madrid (Luma + Meetup, filtrados por la IA) con ➕ para añadirlos al calendario |
-| Cada hora (minuto 45) | 🆕 Novedades de las fuentes con `alert` (OpenAI, Anthropic, DeepMind) con ✍️ Borrador y ⭐ Para el viernes |
-| Al acabar un evento del calendario | 🎤 "¿Da para post?" |
-| 21:45 | 🧭 "¿Has publicado hoy?" ✅ / 😴 y la racha de días seguidos |
-| Viernes 9:45 | 🧵 Borrador del hilo de la semana con lo guardado con ⭐ |
+- **Cada hora lee** las fuentes (blogs oficiales, blogs que sigues, Hacker News, GitHub Trending, Product Hunt) y les pone **temperatura**: puntos de HN por hora, estrellas de hoy, lanzamiento oficial reciente y, sobre todo, **el mismo tema en varias fuentes a la vez** (señal de que está pegando).
+- **La IA mira lo más caliente** y decide si algo merece post ahora, por qué y con qué ángulo.
+- **Cadencia** (`social.cadence`): un aviso cada 20–44 h, máximo 2 al día, nada entre las 23 y las 9. Antes de 20 h solo si es algo gordo; pasadas 44 h baja el listón.
+- El aviso trae ✍️ Borrador (dos versiones para citar), ⭐ Guardar, ✅ Publicado y ⏭ Paso.
+- **Eventos tech de Madrid** (Luma y Meetup, filtrados por la IA): se miran una vez al día y solo avisa de los nuevos; ➕ los mete en el calendario y al acabar pregunta si da para post.
 
-Comandos: `/post idea` (dos versiones), `/cita N` (comentario para citar el N del radar), `/guardar N` (al hilo del viernes) y `/radar` (el de hoy otra vez). `/post` también vale como pie de una foto.
-
-La primera vez que se lee una fuente solo aprende lo que ya hay, sin avisar de lo antiguo. Anthropic no tiene RSS: se lee la página de noticias (`type: "links"`).
+Comandos: `/post idea` (dos versiones; vale como pie de foto), `/radar` (lo más caliente ahora), `/cita N` y `/guardar N` sobre el radar, `/hilo` (hilo con lo guardado).
 
 ## Agenda: el "cerebro"
 

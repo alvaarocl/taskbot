@@ -73,9 +73,10 @@ async function handleMessage(msg, env) {
         { command: "lista", description: "Tareas pendientes" },
         { command: "planificar", description: "Colocar tareas sin hueco" },
         { command: "post", description: "Borrador de post para X" },
-        { command: "cita", description: "Borrador para citar algo del radar" },
-        { command: "guardar", description: "Guardar algo del radar para el hilo del viernes" },
-        { command: "radar", description: "Radar de hoy" },
+        { command: "radar", description: "Lo más caliente ahora para X" },
+        { command: "cita", description: "Borrador para citar el N del radar" },
+        { command: "guardar", description: "Guardar el N del radar para un hilo" },
+        { command: "hilo", description: "Hilo con lo guardado" },
         { command: "ayuda", description: "Qué puedo hacer" },
       ],
     });
@@ -91,9 +92,9 @@ async function handleMessage(msg, env) {
         "Comandos:\n/hoy — tu agenda de hoy y huecos\n/manana — la de mañana\n" +
         "/semana — huecos libres de 7 días\n/lista — tareas pendientes\n" +
         "/planificar — coloca las tareas que aún no tienen hueco\n\n" +
-        "𝕏 Para X (yo no publico nada, solo aviso y escribo borradores):\n" +
-        "/post idea → dos versiones de un post\n/cita N → comentario para citar el N del radar\n" +
-        "/guardar N → al hilo del viernes\n/radar → el radar de hoy",
+        "𝕏 Para X (no publico nada: te aviso cuando hay tema y escribo borradores):\n" +
+        "/post idea → dos versiones de un post\n/radar → lo más caliente ahora\n" +
+        "/cita N → comentario para citar el N del radar\n/guardar N → para un hilo · /hilo → escribirlo",
     });
     return;
   }

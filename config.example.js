@@ -65,25 +65,18 @@ export default {
   social: {
     // Quién escribe: lo usa la IA para los borradores.
     voice: "TU NOMBRE, a qué te dedicas y de qué sueles hablar (una frase).",
-    // Qué toca cada día (0 = domingo … 6 = sábado). Sale en el radar de la mañana.
-    plan: {
-      1: "🛠 algo que estés construyendo: una captura, un número o un error",
-      2: "💬 citar una noticia con tu opinión (los avisos 🆕 o el radar)",
-      3: "🧪 Lo he probado: elige un repo del radar, pruébalo 20 minutos y cuenta qué tal",
-      4: "🔥 una opinión tuya sin noticia detrás, o el post del evento si has ido a alguno",
-      5: "🧵 el hilo de la semana (el borrador te llega a las 9)",
-    },
-    checkHour: 21, // "¿has publicado hoy?"
-    github: { languages: ["", "typescript", "rust", "python", "swift"], top: 5 }, // "" = todos los lenguajes
-    hn: { top: 5, minPoints: 150 },
-    producthunt: { top: 3 },
-    events: { luma: "madrid", meetupKeywords: ["inteligencia artificial", "programación", "startup"] },
-    // alert: true → aviso en el momento. Sin alert → se acumula para el radar de la mañana.
+    // Cuándo avisar: un "hay tema para post" cada minHours–maxHours, como mucho maxPerDay al día y nunca
+    // entre quiet[0] y quiet[1]. Antes de minHours solo si la IA lo marca urgente (algo gordo) con nota ≥ urgentScore;
+    // pasado maxHours basta con lateScore. Notas de 0 a 10.
+    cadence: { minHours: 20, maxHours: 44, maxPerDay: 2, quiet: [23, 9], minScore: 7, urgentScore: 8, lateScore: 5 },
+    github: { languages: ["", "typescript", "rust", "python", "swift"] }, // "" = todos los lenguajes
+    events: { hour: 12, luma: "madrid", meetupKeywords: ["inteligencia artificial", "programación", "startup"] }, // se miran a esa hora; solo avisa de los nuevos
+    // official: lanzamientos de primera mano (suben la temperatura en sus primeras 12 h).
     // type "links": páginas sin RSS; se avisa de los enlaces nuevos que contienen `pattern`.
     feeds: [
-      { name: "OpenAI", url: "https://openai.com/news/rss.xml", alert: true },
-      { name: "Anthropic", url: "https://www.anthropic.com/news", type: "links", pattern: "/news/", alert: true },
-      { name: "Google DeepMind", url: "https://deepmind.google/blog/rss.xml", alert: true },
+      { name: "OpenAI", url: "https://openai.com/news/rss.xml", official: true },
+      { name: "Anthropic", url: "https://www.anthropic.com/news", type: "links", pattern: "/news/", official: true },
+      { name: "Google DeepMind", url: "https://deepmind.google/blog/rss.xml", official: true },
       { name: "Claude Code", url: "https://github.com/anthropics/claude-code/releases.atom" },
       { name: "Hugging Face", url: "https://huggingface.co/blog/feed.xml" },
       { name: "Simon Willison", url: "https://simonwillison.net/atom/everything/" },

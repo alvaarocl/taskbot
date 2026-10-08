@@ -30,15 +30,17 @@ Without being asked, it also:
 - **Sends a morning briefing at 8:00** with the day's classes and rooms, events, overdue tasks and free slots.
 - **Publishes five calendar feeds** (classes, labs and deadlines, exams, routine, tasks) that Apple Calendar subscribes to, so everything shows up on the iPhone.
 
-It is also **an assistant for posting on X** ([`src/social.js`](src/social.js)). It never posts anything itself: it watches sources, tells me what is worth posting about and when, and writes drafts I copy by hand.
+It is also **an assistant for posting on X** ([`src/social.js`](src/social.js)). It never posts anything itself. Instead of fixed schedules, it speaks up when there is something worth posting about:
 
-- **8:00 radar:** the fastest-growing GitHub repos, the top of Hacker News and Product Hunt, new posts from the blogs I follow, and which format today's slot calls for (Monday: what I'm building, Wednesday: a repo I tried, Friday: a weekly thread…).
-- **Breaking news, hourly:** a new OpenAI, Anthropic or DeepMind post arrives with ✍️ (a draft comment for a quote post) and ⭐ (save it for Friday's thread).
-- **Madrid tech events on Mondays:** from Luma and Meetup, with an LLM filtering out the non-tech ones. ➕ puts one in my calendar, and when it ends the bot asks whether it is worth a post.
-- **Accountability:** at 21:00 it asks "did you post today?" and keeps a streak. On Friday it drafts the weekly thread from what I saved.
-- **`/post <idea>`** returns two drafts written in my voice. `/cita N` does the same for item N of the radar.
+- **Every hour it reads** official blogs (OpenAI, Anthropic, DeepMind), the blogs I follow, Hacker News, GitHub Trending and Product Hunt into a 48-hour pool.
+- **Each candidate gets a temperature** from Hacker News points per hour, GitHub stars today, being a first-hand launch and, above all, **the same topic appearing in several sources at once**. That is the signal that something is taking off, matched through an inverted word index that fits in the free tier's 10 ms of CPU.
+- **An LLM reads the hottest ones** and decides whether any deserves a post now, why now and what angle I could bring.
+- **A cadence keeps it to roughly one nudge every 20 to 44 hours.** Before 20 hours only something big gets through; after 44 hours the bar drops. Nothing is sent at night.
+- **Each nudge has buttons:** ✍️ two drafts in my voice for a quote post, ✅ posted, ⏭ skip and ⭐ save for a thread.
+- **New tech events in Madrid** (Luma and Meetup, filtered by the LLM) arrive when they appear. ➕ puts one in my calendar, and when it ends the bot asks whether it is worth a post.
+- **Commands:** `/post <idea>` gives two drafts, `/radar` lists what is hottest right now, `/cita N` drafts a quote and `/hilo` turns saved items into a thread.
 
-Everything runs on the same free Worker with no X API (reading posts through it costs money since 2026). Sources, the weekly plan and the voice used for drafts are set in `config.js`.
+It all runs on the same free Worker without the X API, which has charged for reading posts since 2026. Sources, cadence and the voice used for drafts are set in `config.js`.
 
 Two clients read from the same API:
 
