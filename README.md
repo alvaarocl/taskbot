@@ -95,3 +95,7 @@ macos-widget/   native macOS app + widget (xcodegen)
 schema.sql      D1 schema · migrations/ for existing databases
 docs/GUIA.md    full usage guide (Spanish)
 ```
+
+## License
+
+[MIT](LICENSE)
