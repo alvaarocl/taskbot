@@ -1,174 +1,97 @@
-# Taskbot — captura sin fricción + dashboard de tareas
+# taskbot
 
-Sustituye el chat de WhatsApp contigo mismo: mandas texto, fotos, audios o archivos a un **bot de Telegram** (misma fricción cero que WhatsApp) y todo aparece organizado en un **dashboard PWA** instalable en el iPhone. La IA clasifica automáticamente cada mensaje y el bot te recuerda cada mañana lo que vence o lleva demasiado tiempo pendiente.
+**A personal operating system for a university student, run from a Telegram chat.**
 
-**Coste: 0€/mes** — todo corre en la capa gratuita de Cloudflare (Workers + D1 + R2 + Workers AI).
+I used to send myself WhatsApp messages to remember things, while deadlines lived in Moodle, my timetable lived on a university website and my basketball coaching schedule lived in my head. taskbot puts all of it in one place: I text or voice-note a Telegram bot, an LLM works out what I meant, and everything lands in one agenda that also knows my classes, my exams and my Moodle deadlines.
 
-> **¿Quieres tu propia copia independiente (para probarlo sin mezclar datos con otra persona)?** Abre este repo con Claude Code y dile: *"sigue DEPLOY.md paso a paso"*. Monta un bot, base de datos y dashboard 100% tuyos, sin tocar ninguna otra instancia.
+It has run my semester since July 2026 and costs **€0/month**: Cloudflare's free tier, vanilla JavaScript, no npm dependencies, no build step.
 
-## Cómo funciona
+> 🇪🇸 Full usage guide in Spanish: [docs/GUIA.md](docs/GUIA.md) · Deploy your own: [DEPLOY.md](DEPLOY.md)
 
-```
-Telegram (tú) ──▶ Worker /webhook ──▶ IA clasifica ──▶ D1 (tareas) + R2 (archivos)
-                                                          ▲
-Dashboard PWA (iPhone/PC) ◀── Worker /api ────────────────┘
-Cron diario 8:00 ──▶ bot te escribe: vence hoy / atrasado / lleva 2 semanas
-```
+## What it does
 
-- **Texto** → la IA detecta: tarea/nota/material, prioridad (urgente/normal/algún día), categoría y fecha límite ("el viernes" → fecha real). Si la IA falla, se guarda como tarea normal — nunca se pierde nada.
-- **Fotos/audios/archivos** → se guardan en R2 y salen en la pestaña Material (o asociados a la tarea si llevan caption).
-- El bot confirma cada captura con botones: ✅ Hecha · 🔥 Urgente · 🌙 Algún día · 🗑 Borrar.
-- Comandos: `/hoy` y `/manana` (agenda con huecos libres), `/semana` (huecos de 7 días), `/lista` (pendientes), `/planificar` (coloca las tareas sin hueco), `/ayuda`.
-
-## Asistente
-
-Cada texto o audio pasa por `src/assistant.js`, que decide (Workers AI, Llama 3.3 70B):
-- **pregunta** → responde con la agenda real del rango de días que haga falta, exámenes, tareas, avisos y notas de Aula Global. Recuerda los últimos mensajes (KV `chat:history`, 3 h) para seguir la conversación ("¿y el viernes?").
-- **editar** → mueve, renombra o cambia la fecha límite de una tarea, evento o examen, con botón ↩️ Deshacer (estado anterior en KV `undo:<id>`, 2 días). Mover un examen devuelve la clase a ese día.
-- **borrar** → pide confirmación. **hecho** → marca hecho (con ↩️).
-- **apuntar** → el flujo de siempre (`classify` → evento/tarea/examen/cancelación).
-Si algo falla, el bot lo dice en vez de quedarse callado.
-
-## Agenda: el "cerebro"
-
-taskbot conoce todo el horario (clases UC3M + rutina + eventos + exámenes) y coloca cada cosa:
-
-| Mandas por Telegram | Pasa |
+| You send on Telegram | What happens |
 |---|---|
-| "Reunión con Marco el jueves a las 17:30" | 📅 evento con hora y alarma; avisa si choca con algo |
-| "Hacer la práctica de SO antes del viernes" | 📌 tarea; la IA estima la duración y la pone en un hueco libre antes de la fecha (🔁 para moverla) |
-| "Parcial de Cálculo el 26 de octubre a las 10:45" | 📝 examen; en el calendario sustituye a la clase de esa asignatura |
-| "Este sábado no hay partido" / "no hay clase de IA el martes" | ❌ quita ese partido, entreno o clase (↩️ Deshacer) |
-| "Partido el sábado 17 a las 11 en Illescas" | sustituye al bloque provisional de partidos de ese sábado |
+| "Meeting with Marco on Thursday at 17:30" | 📅 Event with an alarm, plus a warning if it clashes with a class or training |
+| "Finish the OS lab before Friday" | 📌 Task. The AI estimates how long it takes and books a free slot before the deadline |
+| "Calculus midterm on 26 October at 10:45" | 📝 Exam. It replaces that day's Calculus class in the calendar |
+| "No game this Saturday" | ❌ Removes that fixed event, with an ↩️ Undo button |
+| A 2-minute voice note | 🎙 Transcribed with Whisper and split into separate tasks |
+| "What do I have on Friday?" | 💬 Answered from the real agenda, and it remembers the conversation ("and Monday?") |
+| "Move the gym to 7" | ✏️ Edited in place, with ↩️ Undo |
 
-Aula Global: **cada hora** entregas y cuestionarios pendientes → tareas con hueco, entregado → hecha, cambio de fecha → aviso, recordatorios 24 h y 3 h antes, avisos y foros de los profesores → Telegram; **cada 3 h** material nuevo y notas publicadas → aviso. Token: `~/obsidian/aulaglobal/login.mjs`.
+Without being asked, it also:
 
-Crons (la cuenta gratuita permite 5 en total entre todos los workers; aquí 3): `0 6 * * *` buenos días · `15 * * * *` Aula Global · `45 * * * *` horario UC3M (hora UTC % 3 = 0) o material y notas (% 3 = 1).
+- **Watches Moodle (Aula Global) every hour.** New assignments and quizzes become tasks, submitted ones are marked done and changed deadlines trigger an alert. Reminders go out 24 h and 3 h before each deadline, and teacher announcements and forum posts are forwarded to Telegram. Every 3 h it checks for new course material and grades.
+- **Re-reads the university timetable every 3 h** and reports room changes, added sessions and cancelled sessions.
+- **Sends a morning briefing at 8:00** with the day's classes and rooms, events, overdue tasks and free slots.
+- **Publishes five calendar feeds** (classes, labs and deadlines, exams, routine, tasks) that Apple Calendar subscribes to, so everything shows up on the iPhone.
 
-Cada 3 h (minuto 45) se relee la web de horarios de la UC3M (avisa por Telegram de cambios de aula, sesiones nuevas o quitadas) y se recolocan las tareas que se pasaron o que ahora chocan.
+Two clients read from the same API:
 
-### Calendarios suscritos (Apple Calendar, solo lectura)
+- **A PWA dashboard** (vanilla JS, installable on iOS) with search and categories.
+- **A native macOS app and widget** (SwiftUI and WidgetKit). It syncs both ways with Apple Reminders: completing a reminder on the iPhone marks the task done.
 
-Todos con el mismo `CAL_TOKEN` (`?t=...`):
+## Architecture
 
-| URL | Calendario |
-|---|---|
-| `/cal/clases.ics` | **UC3M · Clases**: clases de teoría y recuperaciones |
-| `/cal/practicas.ics` | **UC3M · Prácticas** (naranja): prácticas/laboratorios + fechas límite ⏰ de Aula Global |
-| `/cal/examenes.ics` | **UC3M · Exámenes** (rojo): parciales, controles, EC y finales |
-| `/cal/rutina.ics` | **Rutina**: entrenos y partidos según el calendario escolar de Toledo |
-| `/calendar.ics` | **Taskbot**: eventos y bloques de tareas |
+```mermaid
+flowchart LR
+  TG[Telegram] -->|webhook| W
+  subgraph CF[Cloudflare Worker · free tier]
+    W[router] --> A[assistant<br/>intent: ask · edit · delete · capture]
+    A --> C[classify<br/>Llama 3.3 70B · Whisper]
+    A --> B[brain<br/>agenda · free slots · clashes]
+    CR[3 cron triggers] --> S[UC3M timetable sync]
+    CR --> M[Moodle sync]
+    CR --> R[morning briefing]
+  end
+  B <--> D1[(D1 · SQLite)]
+  C --> D1
+  M <--> D1
+  W <--> KV[(KV · files, cache, undo)]
+  S -->|scrape| UC[uc3m.es timetable]
+  M -->|REST| AG[Aula Global · Moodle]
+  W -->|/api| P[PWA dashboard]
+  W -->|/api| MAC[macOS app + widget ↔ Reminders]
+  W -->|.ics| CAL[Apple Calendar]
+```
 
-Para que salgan en el iPhone: Calendario del Mac → Archivo → Nueva suscripción → ubicación **iCloud**, actualización **cada hora**. Los calendarios suscritos no se pueden editar desde Apple: los cambios se hacen por Telegram.
+## Engineering notes
 
-### Configuración
+- **Five cron jobs' worth of work on three triggers.** The free plan allows five cron triggers per account, shared by every worker. One trigger runs the timetable sync or the material and grades sync depending on `hour % 3`.
+- **Exams and cancellations are an override layer.** The fixed schedule (timetable and routine) is generated and never edited. Exams and "no class on Tuesday" are stored as overrides and applied on top, so undoing one or moving an exam simply brings the class back.
+- **Moodle sync is idempotent.** Every imported item carries a unique `source` key (`ag:assign:123`), so hourly runs update in place instead of duplicating, and a deadline change shows up as a diff.
+- **Moodle access is read-only by design.** The integration only reads and never submits or posts.
+- **Each surface has its own credential.** The dashboard and the calendar feeds use different tokens because Apple's servers poll the `.ics` URL. If that URL leaks, only the calendar token needs rotating.
+- **Nothing is ever lost.** If the LLM call fails or returns garbage, the message is saved as a plain task and the bot says so instead of going silent.
+- **Personal data stays out of the code.** Enrolment, routine and planning preferences live in an untracked `config.js` (template: [`config.example.js`](config.example.js)).
 
-- Asignaturas y grupos: `UC3M_CONFIG` en `src/uc3m.js` (cambiar si cambia la matrícula).
-- Horario de baloncesto, festivos y vacaciones: `ROUTINE` en `src/rutina.js`.
-- Ventana de planificación, comida, viajes: `PREFS` en `src/brain.js`.
+## Stack
 
-## Despliegue (una sola vez, ~15 min)
+Cloudflare Workers · D1 · KV · Workers AI (Llama 3.3 70B, Whisper) · Telegram Bot API · Moodle Web Services · iCalendar (RFC 5545) · vanilla JS PWA · SwiftUI, WidgetKit and EventKit
 
-Requisitos: cuenta de Cloudflare (ya la tienes), Node instalado.
+About 2,200 lines of JavaScript in `src/`, plus the Swift app.
 
-### 1. Crear el bot de Telegram
-1. En Telegram, habla con **@BotFather** → `/newbot` → dale nombre y username.
-2. Guarda el **token** que te da.
-3. Opcional: `/setuserpic` para ponerle icono.
+## Run your own
 
-### 2. Crear los recursos en Cloudflare
+You need Node, a free Cloudflare account (no card) and Telegram.
+
 ```bash
-cd taskbot
-npx wrangler login                          # abre el navegador, autoriza
-
-npx wrangler d1 create taskbot              # copia el database_id que devuelve
-# → pégalo en wrangler.toml donde pone PON_AQUI_EL_DATABASE_ID
-
-npx wrangler r2 bucket create taskbot-files
+cp config.example.js config.js           # your enrolment, routine and preferences
+npx wrangler d1 create taskbot && npx wrangler kv namespace create FILES
 npx wrangler d1 execute taskbot --remote --file=schema.sql
+npx wrangler secret put TELEGRAM_TOKEN   # plus TG_WEBHOOK_SECRET, DASH_TOKEN, CAL_TOKEN, OWNER_CHAT_ID
+npx wrangler deploy
 ```
 
-### 3. Configurar secretos
-```bash
-npx wrangler secret put TELEGRAM_TOKEN      # el token de BotFather
-npx wrangler secret put TG_WEBHOOK_SECRET   # inventa una cadena aleatoria larga
-npx wrangler secret put DASH_TOKEN          # tu contraseña del dashboard (aleatoria y larga)
-```
+[DEPLOY.md](DEPLOY.md) has every step, including the webhook and the iPhone install, and is written so Claude Code can follow it for you. The timetable and Moodle integrations are specific to UC3M. Everything else works anywhere, and the bot speaks Spanish.
 
-### 4. Desplegar y conectar el webhook
-```bash
-npx wrangler deploy                         # te da la URL: https://taskbot.XXX.workers.dev
-```
-Registra el webhook (sustituye TOKEN, URL y SECRETO):
-```bash
-curl "https://api.telegram.org/botTOKEN/setWebhook?url=https://taskbot.XXX.workers.dev/webhook&secret_token=SECRETO"
-```
-
-### 5. Activar tu chat
-1. Escríbele cualquier cosa al bot → te responde con tu **chat id**.
-2. `npx wrangler secret put OWNER_CHAT_ID` → pega el número.
-3. Vuelve a escribirle: ya guarda de verdad. El bot es privado — ignora a cualquier otro usuario.
-
-### 6. Instalar el dashboard en el iPhone
-1. Abre la URL del worker en Safari.
-2. Introduce tu `DASH_TOKEN`.
-3. Compartir → **Añadir a pantalla de inicio**. Ya tienes la app.
-
-### 7. (Opcional) Tu dominio
-En `wrangler.toml`, descomenta `routes` y pon p. ej. `tareas.tudominio.com` → `npx wrangler deploy`. Cloudflare crea el DNS solo (el dominio ya está en tu cuenta).
-
-## Recordatorios
-
-Cada día a las **8:00 (verano) / 7:00 (invierno)** el bot te manda:
-- 🗓 La agenda del día (clases con aula, entrenos, eventos, bloques de tareas) y los huecos libres.
-- ⚠️ Tareas atrasadas, 📅 las que vencen hoy y 🔜 mañana.
-- 🕸 Tareas sin fecha con más de 2 semanas pendientes (máx. 5, se repite semanalmente).
-
-Para cambiar la hora: edita `crons` en `wrangler.toml` (está en UTC) y redespliega.
-
-## Estructura
+## Project layout
 
 ```
-src/index.js      router del Worker + servir archivos R2
-src/telegram.js   webhook: mensajes, adjuntos, botones, comandos
-src/classify.js   clasificación con Workers AI (tarea/evento/examen/cancelación, duración)
-src/api.js        API REST para el dashboard
-src/reminders.js  cron diario: agenda + recordatorios; avisos de tareas recolocadas
-src/brain.js      agenda, huecos libres, colocar y recolocar tareas
-src/uc3m.js       lector de la web de horarios UC3M
-src/sync.js       cron cada 3 h: horario UC3M en KV + avisos de cambios
-src/rutina.js     rutina semanal (baloncesto) y calendario escolar
-src/exams.js      exámenes que sustituyen a la clase
-src/overrides.js  lo fijo ajustado con exámenes y cancelaciones
-src/calendar.js   feeds .ics
-src/aulaglobal.js Aula Global: entregas, recordatorios, avisos, material y notas
-src/assistant.js  asistente: preguntas, cambios y deshacer
-public/           dashboard PWA (vanilla JS, sin dependencias)
-schema.sql        esquema D1
+src/            Worker: telegram, assistant, classify, brain, calendar, aulaglobal, uc3m, …
+public/         PWA dashboard (no framework)
+macos-widget/   native macOS app + widget (xcodegen)
+schema.sql      D1 schema · migrations/ for existing databases
+docs/GUIA.md    full usage guide (Spanish)
 ```
-
-## Límites de la capa gratuita (de sobra para uso personal)
-
-| Recurso | Gratis | Tu uso estimado |
-|---|---|---|
-| Workers | 100.000 req/día | < 500 |
-| D1 | 5 GB, 5M lecturas/día | irrisorio |
-| R2 | 10 GB almacenamiento | años de fotos |
-| Workers AI | ~10.000 neuronas/día | ~100 clasificaciones/día posibles |
-
-## Funciones adicionales (implementadas 2026-07-12)
-
-- **Transcripción de audios con Whisper** — notas de voz cortas (≤5 min) se transcriben (`@cf/openai/whisper-large-v3-turbo`, gratis en Workers AI) y se clasifican igual que un mensaje de texto. Si falla, cae a "material" como antes.
-- **Búsqueda en el dashboard** — campo de búsqueda bajo el quick-add, filtra todo (pendientes y hechas, cualquier tipo) por texto y categoría.
-- **Pestaña de categorías** — quinta tab "🏷 Cats", agrupa lo pendiente por categoría con contadores y grupos colapsables.
-- Compartir directo desde iOS al bot — ya funciona sin cambios: Compartir → Telegram → tu bot.
-
-## Ideas futuras (no en v1)
-
-- Dominio propio — ver sección "(Opcional) Tu dominio" más arriba, deliberadamente sin activar por defecto.
-
-## Widget para el escritorio del Mac
-
-Hay una app auxiliar nativa con widget de macOS en [`macos-widget/`](macos-widget/README.md). Abre el proyecto con Xcode, configura la firma del grupo de aplicaciones, introduce tu `DASH_TOKEN` y añade el widget desde el Centro de notificaciones. Ofrece tamaños pequeño, mediano y grande, muestra tareas pendientes y abre el dashboard al pulsarlo. El sistema de widgets decide el intervalo real de actualización.
-
-Desde el widget de macOS puedes pulsar el círculo de una tarea para marcarla como hecha; se quita de la lista pendiente al actualizar. El widget tiene espacio fijo (hasta 7 tareas en grande), así que púlsalo fuera de los botones para abrir el dashboard y desplazarte por todas.

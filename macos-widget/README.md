@@ -5,9 +5,10 @@ Widget nativo de WidgetKit para poner las tareas pendientes de Taskbot en el Cen
 ## Generar y ejecutar
 
 1. Abre Terminal en esta carpeta.
-2. Genera el proyecto de Xcode y ábrelo:
+2. Pon la URL de tu worker (el archivo no se sube a git), genera el proyecto de Xcode y ábrelo:
 
    ```sh
+   cp Shared/TaskbotEndpoint.swift.example Shared/TaskbotEndpoint.swift   # y edita la URL
    xcodegen generate
    open TaskbotWidget.xcodeproj
    ```

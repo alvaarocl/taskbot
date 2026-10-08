@@ -93,6 +93,19 @@ npx wrangler secret put CAL_TOKEN
 ```
 → otra cadena aleatoria distinta (para el feed de calendario `.ics`).
 
+Opcional, solo para estudiantes de la UC3M: `AULAGLOBAL_TOKEN`, el token de la app
+móvil de Moodle (servicio `moodle_mobile_app`). Sin él, todo lo de Aula Global se
+desactiva solo.
+
+### 8b. Tu configuración
+```bash
+cp config.example.js config.js
+```
+⏸ Pide al humano su matrícula (asignaturas y grupos de la web de horarios de la UC3M),
+su rutina semanal y sus festivos, y rellena `config.js`. En `calendar.uidDomain` pon el
+dominio del worker (`taskbot-TUNOMBRE.SUCUENTA.workers.dev`) y no lo cambies después.
+`config.js` no se sube a git.
+
 ### 9. Desplegar
 ```bash
 npx wrangler deploy
