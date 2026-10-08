@@ -3,6 +3,7 @@ import { loadSessions } from "./sync.js";
 import { replacedBy } from "./exams.js";
 import { cancellationEffect } from "./overrides.js";
 import { assistant, undoChange } from "./assistant.js";
+import { socialCommand, socialCallback } from "./social.js";
 import {
   agendaText, weekFreeText, scheduleTask, conflictsFor, nowMadrid, dayLabel,
   addDays, toMin, fromMin,
@@ -58,6 +59,10 @@ async function handleMessage(msg, env) {
 
   const text = (msg.text || "").trim();
 
+  // Asistente de X: /post (también como pie de una foto), /cita, /guardar, /radar.
+  const command = (msg.text || msg.caption || "").trim();
+  if (command.startsWith("/") && await socialCommand(env, chatId, command)) return;
+
   if (text === "/start" || text === "/ayuda") {
     // Menú de comandos de Telegram (el botón "/" junto al teclado).
     await tg(env, "setMyCommands", {
@@ -67,6 +72,10 @@ async function handleMessage(msg, env) {
         { command: "semana", description: "Huecos libres de 7 días" },
         { command: "lista", description: "Tareas pendientes" },
         { command: "planificar", description: "Colocar tareas sin hueco" },
+        { command: "post", description: "Borrador de post para X" },
+        { command: "cita", description: "Borrador para citar algo del radar" },
+        { command: "guardar", description: "Guardar algo del radar para el hilo del viernes" },
+        { command: "radar", description: "Radar de hoy" },
         { command: "ayuda", description: "Qué puedo hacer" },
       ],
     });
@@ -81,7 +90,10 @@ async function handleMessage(msg, env) {
         "Fotos, archivos y notas también se guardan.\n\n" +
         "Comandos:\n/hoy — tu agenda de hoy y huecos\n/manana — la de mañana\n" +
         "/semana — huecos libres de 7 días\n/lista — tareas pendientes\n" +
-        "/planificar — coloca las tareas que aún no tienen hueco",
+        "/planificar — coloca las tareas que aún no tienen hueco\n\n" +
+        "𝕏 Para X (yo no publico nada, solo aviso y escribo borradores):\n" +
+        "/post idea → dos versiones de un post\n/cita N → comentario para citar el N del radar\n" +
+        "/guardar N → al hilo del viernes\n/radar → el radar de hoy",
     });
     return;
   }
@@ -284,6 +296,7 @@ async function handleCallback(cb, env) {
   if (String(cb.from.id) !== String(env.OWNER_CHAT_ID)) return;
   const [action, idStr] = (cb.data || "").split(":");
   const id = Number(idStr);
+  if (action.startsWith("x")) return socialCallback(env, cb, action, id);
   let notice = "";
 
   if (action === "done") {

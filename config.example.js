@@ -60,4 +60,38 @@ export default {
   calendar: {
     uidDomain: "taskbot.example.workers.dev", // dominio de tu worker; fíjalo una vez y no lo cambies
   },
+
+  // Asistente de X (src/social.js): avisa y escribe borradores; nunca publica.
+  social: {
+    // Quién escribe: lo usa la IA para los borradores.
+    voice: "TU NOMBRE, a qué te dedicas y de qué sueles hablar (una frase).",
+    // Qué toca cada día (0 = domingo … 6 = sábado). Sale en el radar de la mañana.
+    plan: {
+      1: "🛠 algo que estés construyendo: una captura, un número o un error",
+      2: "💬 citar una noticia con tu opinión (los avisos 🆕 o el radar)",
+      3: "🧪 Lo he probado: elige un repo del radar, pruébalo 20 minutos y cuenta qué tal",
+      4: "🔥 una opinión tuya sin noticia detrás, o el post del evento si has ido a alguno",
+      5: "🧵 el hilo de la semana (el borrador te llega a las 9)",
+    },
+    checkHour: 21, // "¿has publicado hoy?"
+    github: { languages: ["", "typescript", "rust", "python", "swift"], top: 5 }, // "" = todos los lenguajes
+    hn: { top: 5, minPoints: 150 },
+    producthunt: { top: 3 },
+    events: { luma: "madrid", meetupKeywords: ["inteligencia artificial", "programación", "startup"] },
+    // alert: true → aviso en el momento. Sin alert → se acumula para el radar de la mañana.
+    // type "links": páginas sin RSS; se avisa de los enlaces nuevos que contienen `pattern`.
+    feeds: [
+      { name: "OpenAI", url: "https://openai.com/news/rss.xml", alert: true },
+      { name: "Anthropic", url: "https://www.anthropic.com/news", type: "links", pattern: "/news/", alert: true },
+      { name: "Google DeepMind", url: "https://deepmind.google/blog/rss.xml", alert: true },
+      { name: "Claude Code", url: "https://github.com/anthropics/claude-code/releases.atom" },
+      { name: "Hugging Face", url: "https://huggingface.co/blog/feed.xml" },
+      { name: "Simon Willison", url: "https://simonwillison.net/atom/everything/" },
+      { name: "Latent Space", url: "https://www.latent.space/feed" },
+      { name: "Cloudflare", url: "https://blog.cloudflare.com/rss/" },
+      { name: "Vercel", url: "https://vercel.com/atom" },
+      { name: "GitHub", url: "https://github.blog/feed/" },
+      { name: "TechCrunch IA", url: "https://techcrunch.com/category/artificial-intelligence/feed/" },
+    ],
+  },
 };

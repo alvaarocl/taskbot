@@ -30,6 +30,16 @@ Without being asked, it also:
 - **Sends a morning briefing at 8:00** with the day's classes and rooms, events, overdue tasks and free slots.
 - **Publishes five calendar feeds** (classes, labs and deadlines, exams, routine, tasks) that Apple Calendar subscribes to, so everything shows up on the iPhone.
 
+It is also **an assistant for posting on X** ([`src/social.js`](src/social.js)). It never posts anything itself: it watches sources, tells me what is worth posting about and when, and writes drafts I copy by hand.
+
+- **8:00 radar:** the fastest-growing GitHub repos, the top of Hacker News and Product Hunt, new posts from the blogs I follow, and which format today's slot calls for (Monday: what I'm building, Wednesday: a repo I tried, Friday: a weekly thread…).
+- **Breaking news, hourly:** a new OpenAI, Anthropic or DeepMind post arrives with ✍️ (a draft comment for a quote post) and ⭐ (save it for Friday's thread).
+- **Madrid tech events on Mondays:** from Luma and Meetup, with an LLM filtering out the non-tech ones. ➕ puts one in my calendar, and when it ends the bot asks whether it is worth a post.
+- **Accountability:** at 21:00 it asks "did you post today?" and keeps a streak. On Friday it drafts the weekly thread from what I saved.
+- **`/post <idea>`** returns two drafts written in my voice. `/cita N` does the same for item N of the radar.
+
+Everything runs on the same free Worker with no X API (reading posts through it costs money since 2026). Sources, the weekly plan and the voice used for drafts are set in `config.js`.
+
 Two clients read from the same API:
 
 - **A PWA dashboard** (vanilla JS, installable on iOS) with search and categories.
