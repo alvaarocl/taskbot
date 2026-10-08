@@ -1,6 +1,6 @@
 import { handleWebhook } from "./telegram.js";
 import { handleApi } from "./api.js";
-import { runReminders, notifyReplan } from "./reminders.js";
+import { runReminders } from "./reminders.js";
 import { handleCalendar, handleScheduleFeed } from "./calendar.js";
 import { syncUc3m } from "./sync.js";
 import { syncAulaGlobal, syncAulaMaterial } from "./aulaglobal.js";
@@ -26,8 +26,7 @@ export default {
     const hour = new Date(event.scheduledTime).getUTCHours();
     if (event.cron === MORNING_CRON) ctx.waitUntil(runReminders(env));
     else if (event.cron === AULA_CRON) ctx.waitUntil(syncAulaGlobal(env));
-    // Primero el horario de la UC3M; luego se recolocan las tareas que ahora choquen.
-    else if (event.cron === SPLIT_CRON && hour % 3 === 0) ctx.waitUntil(syncUc3m(env).finally(() => notifyReplan(env)));
+    else if (event.cron === SPLIT_CRON && hour % 3 === 0) ctx.waitUntil(syncUc3m(env));
     else if (event.cron === SPLIT_CRON && hour % 3 === 1) ctx.waitUntil(syncAulaMaterial(env));
     else if (event.cron !== SPLIT_CRON) console.warn("cron desconocido:", event.cron);
   },

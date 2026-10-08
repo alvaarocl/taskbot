@@ -144,29 +144,6 @@ export async function conflictsFor(env, date, start, end, skipId) {
   return busy.filter((b) => !b.hidden && (b.shown || b.start) < end && start < (b.shownEnd || b.end));
 }
 
-// Recoloca bloques de tareas que se han pasado o que ahora chocan con algo fijo.
-export async function replan(env) {
-  const now = nowMadrid();
-  const { results } = await env.DB.prepare(
-    "SELECT * FROM items WHERE status='pendiente' AND kind='tarea' AND start_at IS NOT NULL ORDER BY start_at"
-  ).all();
-  const moves = [];
-  for (const it of results) {
-    const date = it.start_at.slice(0, 10), start = it.start_at.slice(11, 16), end = it.end_at.slice(11, 16);
-    const missed = it.end_at < `${now.date}T${now.time}`;
-    let reason = missed ? "se pasó" : null;
-    if (!missed) {
-      const busy = (await loadBusy(env, date, date, it.id)).filter((b) => !b.itemId || b.fixed);
-      const hit = busy.find((b) => b.start < end && start < b.end);
-      if (hit) reason = `chocaba con ${hit.label}`;
-    }
-    if (!reason) continue;
-    const { slot } = await scheduleTask(env, it);
-    moves.push({ item: it, reason, slot });
-  }
-  return moves;
-}
-
 export async function agendaText(env, date) {
   const busy = await loadBusy(env, date, date);
   const now = nowMadrid();

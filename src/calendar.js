@@ -11,6 +11,7 @@ export async function handleCalendar(url, env) {
   const { results } = await env.DB.prepare(
     `SELECT id, kind, text, priority, due_date, start_at, end_at, location, url FROM items
      WHERE status='pendiente' AND kind IN ('tarea','evento') AND (start_at IS NOT NULL OR due_date IS NOT NULL)
+       AND NOT (start_at IS NULL AND (source LIKE 'ag:%' OR source LIKE 'crono:%'))
      ORDER BY COALESCE(start_at, due_date)`
   ).all();
 
@@ -64,15 +65,19 @@ export async function handleScheduleFeed(url, env) {
   return icsResponse(buildCalendar(name, events, color));
 }
 
-// Fechas límite de entregas y cuestionarios de Aula Global (día completo, con enlace).
+// Entregas y cuestionarios (Aula Global y cronogramas): a la hora exacta en que cierran.
+// Sin hora conocida, día completo.
 async function deadlineEvents(env) {
   const { results } = await env.DB.prepare(
-    "SELECT id, text, due_date, url FROM items WHERE status='pendiente' AND source LIKE 'ag:%' AND due_date IS NOT NULL"
+    `SELECT id, text, due_date, due_at, url FROM items
+     WHERE status='pendiente' AND (source LIKE 'ag:%' OR source LIKE 'crono:%') AND due_date IS NOT NULL`
   ).all();
-  return results.map((it) => ({
-    uid: `deadline-${it.id}`, date: it.due_date, allDay: true,
-    summary: `⏰ ${it.text.replace(/^Entregar: /, "Entrega: ")}`, description: it.url,
-  }));
+  return results.map((it) => {
+    const base = { uid: `deadline-${it.id}`, summary: `⏰ ${it.text.replace(/^Entregar: /, "Entrega: ")}`, description: it.url };
+    if (!it.due_at) return { ...base, date: it.due_date, allDay: true };
+    const end = it.due_at.slice(11, 16);
+    return { ...base, date: it.due_at.slice(0, 10), start: end, end, alarmMin: 24 * 60 };
+  });
 }
 
 export function buildCalendar(name, events, color = null) {

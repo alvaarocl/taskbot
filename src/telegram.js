@@ -175,8 +175,6 @@ async function insertItem(env, rawText, cls) {
       agenda = `\n📅 ${dayLabel(cls.due_date)} ${start.slice(11)}–${end.slice(11)}` +
         (cls.location ? ` · ${cls.location}` : "") +
         (hits.length ? `\n⚠️ Choca con: ${hits.map((h) => `${h.label} (${h.shown || h.start}–${h.shownEnd || h.end})`).join(", ")}` : "");
-    } else if (cls.kind === "tarea" && cls.priority !== "algun_dia" && text) {
-      agenda = await placeTask(env, { id, ...cls });
     }
   } catch (e) {
     console.error("agenda error:", e?.message || e);

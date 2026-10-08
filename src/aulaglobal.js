@@ -11,7 +11,7 @@
 // Lo último de avisos y notas se guarda en KV para que el asistente pueda responder sobre ello.
 
 import { tg, itemKeyboard } from "./telegram.js";
-import { scheduleTask, dayLabel, nowMadrid } from "./brain.js";
+import { dayLabel, nowMadrid } from "./brain.js";
 
 const SITE = "https://aulaglobal.uc3m.es";
 const YEAR = "26/27"; // asignaturas de este curso: "… 26/27-1C" / "… 26/27-2C"
@@ -127,12 +127,7 @@ async function syncTasks(env, pending) {
          VALUES ('tarea', ?, 'uni', ?, ?, ?, ?, ?, ?)`
       ).bind(label, late ? "urgente" : "normal", dueDate, dueAt, minutes, w.source, w.url).run();
       const id = res.meta.last_row_id;
-      let line = "";
-      if (!late) {
-        const { slot } = await scheduleTask(env, { id, due_date: dueDate, duration_min: minutes });
-        line = slot ? `\n🧠 Te la pongo el ${dayLabel(slot.date)} ${slot.start}–${slot.end}` : "\n🧠 No encuentro hueco antes";
-      }
-      await say(env, `${late ? "⚠️ Sin entregar en Aula Global" : "📌 Nueva en Aula Global"}\n${label}\n📅 ${late ? "venció" : "vence"} el ${when}${line}\n${w.url}`,
+      await say(env, `${late ? "⚠️ Sin entregar en Aula Global" : "📌 Nueva en Aula Global"}\n${label}\n📅 ${late ? "venció" : "vence"} el ${when}\n${w.url}`,
         { reply_markup: itemKeyboard(id, "tarea") });
       continue;
     }
@@ -152,7 +147,7 @@ async function remindDeadlines(env) {
   const now = nowMadrid();
   const nowAt = `${now.date}T${now.time}`;
   const { results } = await env.DB.prepare(
-    "SELECT * FROM items WHERE status='pendiente' AND source LIKE 'ag:%' AND due_at IS NOT NULL AND due_at > ?"
+    "SELECT * FROM items WHERE status='pendiente' AND (source LIKE 'ag:%' OR source LIKE 'crono:%') AND due_at IS NOT NULL AND due_at > ?"
   ).bind(nowAt).all();
   for (const it of results) {
     const hours = (Date.parse(it.due_at + ":00Z") - Date.parse(nowAt + ":00Z")) / 3.6e6;
