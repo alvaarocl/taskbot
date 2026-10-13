@@ -34,8 +34,10 @@ export async function handleCalendar(url, env) {
 }
 
 // /cal/clases.ics y /cal/rutina.ics: calendarios suscritos de solo lectura.
+// La API de la web (api.alvarocarpintero.com) los lee por service binding como https://internal/…:
+// ese host solo existe dentro de Cloudflare, así que no necesita el token.
 export async function handleScheduleFeed(url, env) {
-  if (url.searchParams.get("t") !== env.CAL_TOKEN) {
+  if (url.hostname !== "internal" && url.searchParams.get("t") !== env.CAL_TOKEN) {
     return new Response("forbidden", { status: 403 });
   }
   // Apple pone un color por calendario, no por evento: exámenes y prácticas van aparte.
