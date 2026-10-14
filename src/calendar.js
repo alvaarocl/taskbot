@@ -34,6 +34,17 @@ export async function handleCalendar(url, env) {
     return { ...base, date: it.due_date, allDay: true, description: it.url };
   });
 
+  // Los eventos de Notion van también aquí: así salen en el calendario que ya tienes suscrito, sin añadir otro.
+  // (Si prefieres verlos aparte, con su color, está /cal/notion.ics: suscribe uno u otro, no los dos.)
+  if (config.notion) {
+    const list = await fetchEvents(env).catch((e) => (console.error("notion", e?.message || e), cachedEvents(env)));
+    for (const e of list) {
+      events.push({
+        uid: e.uid, date: e.date, summary: `🚀 ${e.title}`, allDay: e.allDay, start: e.start, end: e.end,
+        description: [config.notion.name, e.type, e.url].filter(Boolean).join("\n"), alarmMin: e.allDay ? null : 60,
+      });
+    }
+  }
   return icsResponse(buildCalendar("Taskbot", events));
 }
 

@@ -132,7 +132,8 @@ token, según lo que te deje tu espacio de trabajo:
 ```bash
 pbpaste | npx wrangler secret put NOTION_TOKEN   # con el token copiado: no se escribe ni se imprime
 ```
-⏸ Suscribe el calendario `https://taskbot.<subdominio>.workers.dev/cal/notion.ics?t=CAL_TOKEN`.
+Los eventos salen solos en el calendario Taskbot (`/calendar.ics`). Si los quieres en un calendario aparte, con su
+color, suscribe `/cal/notion.ics?t=CAL_TOKEN` (y entonces verás cada uno dos veces si mantienes los dos).
 
 ### Modelo más rápido (Groq, gratis)
 El asistente usa gpt-oss-120b en Workers AI (unos 370 de las 10.000 neuronas gratis al día por mensaje). Con una

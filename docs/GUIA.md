@@ -83,8 +83,9 @@ lee: nunca entrega ni publica nada.
 Para el Notion de un equipo o asociación (secreto `NOTION_TOKEN`; `notion` en `config.js` con los nombres de tus
 bases y campos). Solo lee:
 
-- **Eventos:** las filas con fecha cuyo tipo es un evento salen en el calendario `/cal/notion.ics` (se lee de Notion
-  cada vez que el calendario se actualiza) y en tu agenda con 🚀. Los que tienen hora ocupan ese hueco; los de días
+- **Eventos:** las filas con fecha cuyo tipo es un evento salen con 🚀 en el calendario **Taskbot** que ya tienes
+  suscrito (y, si los quieres aparte con su color, en `/cal/notion.ics`: suscribe uno u otro, no los dos), leídos de
+  Notion cada vez que el calendario se actualiza, y en tu agenda. Los que tienen hora ocupan ese hueco; los de días
   enteros se ven pero no te bloquean el día. Las filas repetidas se juntan.
 - **Tareas:** las que te asignen (tu fila de miembro en el campo de asignación) llegan como tareas con hueco y aviso;
   al completarlas en Notion se cierran aquí, y si cambia la fecha te avisa. Se revisa cada hora.
