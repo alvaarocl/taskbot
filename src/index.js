@@ -9,6 +9,8 @@ import { hourlySocial } from "./social.js";
 import { handleAuth, requireAuth, panelOrigin, purgeAuth } from "./auth.js";
 import { handleInbox, purgeInbox } from "./inbox.js";
 import { buildWeekly } from "./weekly.js";
+import { agent } from "./agent.js";
+import { processQueue } from "./queue.js";
 
 // Deben coincidir con los crons de wrangler.toml. La cuenta gratuita permite 5 crons en total
 // (entre todos los workers), así que el de "45" reparte el trabajo según la hora.
@@ -45,7 +47,10 @@ export default {
   async scheduled(event, env, ctx) {
     const at = new Date(event.scheduledTime);
     const hour = at.getUTCHours();
-    if (event.cron === AULA_CRON) ctx.waitUntil(syncAulaGlobal(env));
+    if (event.cron === AULA_CRON) {
+      ctx.waitUntil(syncAulaGlobal(env));
+      ctx.waitUntil(processQueue(env, agent).catch((e) => console.error("cola", e?.message || e))); // mensajes en espera por falta de cuota
+    }
     else if (event.cron === SPLIT_CRON) {
       const madrid = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", hourCycle: "h23", weekday: "short" }).formatToParts(at);
       const madridHour = Number(madrid.find((p) => p.type === "hour").value);

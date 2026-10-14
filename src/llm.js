@@ -8,6 +8,11 @@ const GROQ_MODEL = "openai/gpt-oss-120b";
 const CF_MODEL = "@cf/openai/gpt-oss-120b";
 const TIMEOUT_MS = 45000;
 
+// "Sin cuota": Workers AI agota las 10.000 neuronas gratis del día (error 4006) o Groq su límite (429).
+export const isQuota = (e) => /4006|daily free allocation|rate_limit_exceeded|Groq 429/i.test(String(e?.message || e));
+
+export class QuotaError extends Error {}
+
 // Workers AI rechaza `content: null` y campos extra en el mensaje del asistente: se deja lo justo.
 export function cleanMessage(m) {
   const out = { role: "assistant", content: m?.content || "" };
@@ -65,5 +70,6 @@ export async function chat(env, { messages, tools, effort = "medium", maxTokens 
   } catch (e) {
     errors.push(String(e?.message || e));
   }
-  throw new Error(`sin modelo disponible: ${errors.join(" | ")}`);
+  const msg = `sin modelo disponible: ${errors.join(" | ")}`;
+  throw errors.every((e) => isQuota(e)) ? new QuotaError(msg) : new Error(msg);
 }

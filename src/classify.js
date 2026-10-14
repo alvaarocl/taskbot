@@ -1,4 +1,5 @@
 import config from "../config.js";
+import { isQuota, QuotaError } from "./llm.js";
 // Clasificación con Workers AI (gratis). Si falla o no hay respuesta válida,
 // el item cae como tarea normal sin categoría — nunca se pierde nada.
 
@@ -151,25 +152,43 @@ export async function classifyAudioTranscript(env, text) {
   }
 }
 
-export async function transcribe(env, arrayBuffer) {
+// Audio → texto. Primero Whisper en Groq si hay GROQ_API_KEY (gratis y sin gastar neuronas); si no, o si falla,
+// Whisper en Workers AI. Devuelve null si no hay texto; lanza QuotaError si no queda cuota en ninguno.
+export async function transcribe(env, arrayBuffer, mime = "audio/ogg") {
+  const errors = [];
+  if (env.GROQ_API_KEY) {
+    try {
+      const form = new FormData();
+      form.append("file", new Blob([arrayBuffer], { type: mime }), mime.includes("mpeg") ? "audio.mp3" : "audio.ogg");
+      form.append("model", "whisper-large-v3-turbo");
+      form.append("language", "es");
+      const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+        method: "POST", headers: { authorization: `Bearer ${env.GROQ_API_KEY}` }, body: form,
+      });
+      if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      const text = (await r.json())?.text;
+      return typeof text === "string" && text.trim() ? text.trim() : null;
+    } catch (e) {
+      errors.push(String(e?.message || e));
+      console.warn("transcribe groq →", errors.at(-1));
+    }
+  }
   try {
-    // Convert to base64 in 32 KB chunks — a single spread over large buffers blows the call stack
+    // A base64 en trozos de 32 KB: un solo spread sobre un buffer grande revienta la pila
     const bytes = new Uint8Array(arrayBuffer);
     const CHUNK = 32 * 1024;
     let binary = "";
     for (let i = 0; i < bytes.length; i += CHUNK) {
       binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
     }
-    const base64 = btoa(binary);
-
-    const res = await env.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: base64 });
-
-    // Shape may vary across model versions — extract defensively
+    const res = await env.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: btoa(binary) });
     const text = res?.text ?? res?.response ?? res?.choices?.[0]?.message?.content ?? null;
     if (typeof text !== "string" || !text.trim()) return null;
     return text.trim();
   } catch (e) {
-    console.error("transcribe error:", e?.message || e);
+    errors.push(String(e?.message || e));
+    console.error("transcribe error:", errors.at(-1));
+    if (errors.every((x) => isQuota(x))) throw new QuotaError(errors.join(" | "));
     return null;
   }
 }

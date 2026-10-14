@@ -5,6 +5,8 @@ import { replacedBy } from "./exams.js";
 import { cancellationEffect } from "./overrides.js";
 import { undoChange } from "./assistant.js";
 import { agent, undoBatch } from "./agent.js";
+import { QuotaError } from "./llm.js";
+import { enqueueAudio } from "./queue.js";
 import { socialCommand, socialCallback } from "./social.js";
 import { createRecoveryLink } from "./auth.js";
 import { buildWeekly } from "./weekly.js";
@@ -160,7 +162,14 @@ async function handleMessage(msg, env) {
 
   if (file?.isAudio && !caption && (file.duration ?? 0) <= MAX_TRANSCRIBE_SECONDS) {
     const preBuffer = await fetchTelegramFile(env, file.file_id);
-    const transcript = preBuffer ? await transcribe(env, preBuffer) : null;
+    let transcript = null;
+    try {
+      transcript = preBuffer ? await transcribe(env, preBuffer, file.mime) : null;
+    } catch (e) {
+      if (!(e instanceof QuotaError)) throw e;
+      await enqueueAudio(env, chatId, preBuffer, file.mime); // sin cuota: se transcribe cuando vuelva
+      return;
+    }
 
     if (transcript && await agent(env, chatId, `(audio transcrito) ${transcript}`)) return;
 

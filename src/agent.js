@@ -7,7 +7,8 @@
 // (entonces telegram.js lo guarda por el camino de siempre: nunca se pierde un mensaje).
 
 import config from "../config.js";
-import { chat } from "./llm.js";
+import { chat, QuotaError } from "./llm.js";
+import { enqueue } from "./queue.js";
 import { tg, insertItem, placeTask } from "./telegram.js";
 import { listItems, describe, todayLine, agendaBlock, applyChange, undoChange, UNDO, COLS } from "./assistant.js";
 import { aulaContext, courseOutline } from "./aulaglobal.js";
@@ -68,8 +69,8 @@ async function contextPrompt(env, now, items) {
 LO QUE TIENE GUARDADO (id · tipo · título · cuándo):
 ${items.map(describe).join("\n") || "(nada)"}
 
-AGENDA DE LOS PRÓXIMOS 7 DÍAS:
-${await agendaBlock(env, now.date, addDays(now.date, 6), now)}`;
+AGENDA DE HOY, MAÑANA Y PASADO (para otros días, ver_agenda):
+${await agendaBlock(env, now.date, addDays(now.date, 2), now)}`;
 }
 
 // ---------- herramientas ----------
@@ -352,7 +353,8 @@ export async function undoBatch(env, key) {
 
 // ---------- bucle ----------
 
-export async function agent(env, chatId, text) {
+// `queued`: viene de la cola de espera; si sigue sin cuota devuelve "quota" en vez de volver a encolarlo.
+export async function agent(env, chatId, text, { queued = false } = {}) {
   await tg(env, "sendChatAction", { chat_id: chatId, action: "typing" });
   const now = nowMadrid();
   const history = (await env.FILES.get(HISTORY, { type: "json" })) || [];
@@ -398,6 +400,12 @@ export async function agent(env, chatId, text) {
     console.error("agent", e?.message || e);
     // Sin modelo y sin haber tocado nada: que lo guarde el camino de siempre (o avise si era una pregunta).
     if (!run.created.length && !run.edited.length && !run.deletions.length) {
+      // Sin cuota de IA: a la cola, para hacerlo bien cuando vuelva (no como tarea suelta ni material).
+      if (e instanceof QuotaError) {
+        if (queued) return "quota";
+        await enqueue(env, chatId, { text: text.slice(0, MAX_INPUT) });
+        return true;
+      }
       if (!/\?\s*$/.test(text)) return false;
       await tg(env, "sendMessage", { chat_id: chatId, text: "⚠️ No he podido pensar la respuesta ahora mismo. Prueba otra vez en un momento." });
       return true;

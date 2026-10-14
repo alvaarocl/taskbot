@@ -42,8 +42,12 @@ conversación de las últimas 24 h, así que entiende "ponlo a las 18" o "¿y el
 
 **Modelo:** gpt-oss-120b (abierto, con razonamiento y herramientas). Primero en Groq si hay `GROQ_API_KEY`
 (rápido y sin gastar cuota de Cloudflare); si no, o si falla, el mismo modelo en Workers AI (unas 370 neuronas por
-mensaje de las 10.000 gratis al día). Si los dos fallan, el mensaje se guarda como tarea normal y te lo dice: nunca
-se pierde nada.
+mensaje de las 10.000 gratis al día). Los audios se transcriben con Whisper, también en Groq si hay clave.
+
+**Sin cuota de IA** (se acaban las neuronas del día o el límite de Groq): el bot te avisa, se guarda el mensaje o el
+audio y lo procesa solo cuando vuelve la cuota (las 00:00 UTC, las 2:00 en Madrid en verano), contestándote
+entonces; las fechas como "mañana" se entienden respecto al día en que lo mandaste. Si el modelo falla por otra
+cosa, el mensaje se guarda como tarea normal: nunca se pierde nada.
 
 **Fotos y archivos** se guardan (KV) y salen en el panel; con pie de foto, como parte de esa tarea o nota.
 
