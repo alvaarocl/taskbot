@@ -12,6 +12,7 @@ import { buildWeekly } from "./weekly.js";
 import { agent } from "./agent.js";
 import { processQueue } from "./queue.js";
 import { fetchEvents, syncNotionTasks } from "./notion.js";
+import { wakeTick, jarvisReport } from "./wake.js";
 
 // Deben coincidir con los crons de wrangler.toml. La cuenta gratuita permite 5 crons en total
 // (entre todos los workers), así que el de "45" reparte el trabajo según la hora.
@@ -37,6 +38,11 @@ export default {
     if (url.pathname.startsWith("/auth/")) return handleAuth(request, env);
     // Mensajes y reservas que empuja el worker `api` por su service binding (host "internal", solo existe por ahí).
     if (url.pathname === "/internal/inbox") return url.hostname === "internal" ? handleInbox(request, env) : new Response("not found", { status: 404 });
+    // El workflow de Jarvis avisa de cómo fue la llamada (su propio token, no el del panel).
+    if (url.pathname === "/api/jarvis" && request.method === "POST") {
+      if (!env.JARVIS_TOKEN || request.headers.get("authorization") !== `Bearer ${env.JARVIS_TOKEN}`) return new Response("unauthorized", { status: 401 });
+      return Response.json(await jarvisReport(env, await request.json().catch(() => null)));
+    }
     if (url.pathname.startsWith("/api/")) return handleApi(request, env);
     if (url.pathname.startsWith("/files/")) return serveFile(request, url, env);
     if (url.pathname === "/calendar.ics") return handleCalendar(url, env);
@@ -51,6 +57,7 @@ export default {
     if (event.cron === AULA_CRON) {
       ctx.waitUntil(syncAulaGlobal(env));
       ctx.waitUntil(processQueue(env, agent).catch((e) => console.error("cola", e?.message || e))); // mensajes en espera por falta de cuota
+      ctx.waitUntil(wakeTick(env, event.scheduledTime).catch((e) => console.error("jarvis", e?.message || e)));
     }
     else if (event.cron === SPLIT_CRON) {
       const madrid = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", hourCycle: "h23", weekday: "short" }).formatToParts(at);
@@ -63,6 +70,7 @@ export default {
       // Máximo 50 peticiones externas por ejecución: el horario usa ~4, material y notas ~15 y el asistente de X ~14 (~18 cuando toca Trending por lenguajes o eventos).
       if (hour % 3 === 0) ctx.waitUntil(syncUc3m(env));
       else if (hour % 3 === 1) ctx.waitUntil(syncAulaMaterial(env));
+      ctx.waitUntil(wakeTick(env, event.scheduledTime).catch((e) => console.error("jarvis", e?.message || e)));
       // Notion: eventos al día (agenda y calendario) y tareas asignadas a ti (~4 peticiones).
       ctx.waitUntil(fetchEvents(env).then(() => syncNotionTasks(env)).catch((e) => console.error("notion", e?.message || e)));
       // El resumen gasta ~10 peticiones de GitHub: ese tick se salta el asistente de X para no pasar de 50.

@@ -1,0 +1,36 @@
+# Workflow del repo PRIVADO que hace las llamadas (cópialo a .github/workflows/call.yml de ese repo).
+# Lo lanza taskbot con workflow_dispatch un rato antes de la hora. Privado porque el texto de tu día va en las
+# entradas del workflow (en un repo público se verían). El código se descarga del repo público de taskbot.
+name: call
+on:
+  workflow_dispatch:
+    inputs:
+      wake_at: { description: "Hora de la llamada (ISO con zona)", required: true }
+      text: { description: "Lo que dirá", required: true }
+      voice: { description: "Voz de edge-tts", required: false, default: "es-ES-AlvaroNeural" }
+      target: { description: "Id de Telegram al que llamar", required: true }
+concurrency: { group: call, cancel-in-progress: false }
+jobs:
+  call:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: alvaarocl/taskbot, path: taskbot }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: taskbot/jarvis/requirements.txt }
+      - run: sudo apt-get install -y -qq ffmpeg > /dev/null
+      - run: pip install -q -r taskbot/jarvis/requirements.txt
+      - name: Llamar
+        working-directory: taskbot/jarvis
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_SESSION: ${{ secrets.TG_SESSION }}
+          REPORT_URL: ${{ secrets.REPORT_URL }}
+          REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
+          WAKE_AT: ${{ inputs.wake_at }}
+          TEXT: ${{ inputs.text }}
+          VOICE: ${{ inputs.voice }}
+          TARGET: ${{ inputs.target }}
+        run: python call.py

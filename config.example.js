@@ -103,6 +103,14 @@ export default {
   //   me: { database: "Miembros", email: "Correo", value: "tu@correo.com" },
   // },
 
+  // OPCIONAL: Jarvis te llama por Telegram (desde una segunda cuenta tuya) a la hora de despertarte y te cuenta el
+  // día. Necesita un repo PRIVADO de GitHub que hace la llamada (ver jarvis/ y DEPLOY.md). Apagado: jarvis: null.
+  jarvis: null,
+  // jarvis: {
+  //   repo: "tu-usuario/jarvis", workflow: "call.yml", voice: "es-ES-AlvaroNeural",
+  //   location: { name: "Madrid", lat: 40.4168, lon: -3.7038 }, // para el tiempo
+  // },
+
   // Asistente de X (src/social.js): avisa y escribe borradores; nunca publica.
   social: {
     // Quién escribe: lo usa la IA para los borradores.
