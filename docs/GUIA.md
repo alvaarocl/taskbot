@@ -78,6 +78,19 @@ lee: nunca entrega ni publica nada.
   avisos) y sus documentos de planificación en PDF (calendario de sesiones, cronograma), que se convierten a texto
   con Workers AI y se guardan hasta que el profe los cambie.
 
+## Notion (opcional)
+
+Para el Notion de un equipo o asociación (secreto `NOTION_TOKEN`; `notion` en `config.js` con los nombres de tus
+bases y campos). Solo lee:
+
+- **Eventos:** las filas con fecha cuyo tipo es un evento salen en el calendario `/cal/notion.ics` (se lee de Notion
+  cada vez que el calendario se actualiza) y en tu agenda con 🚀. Los que tienen hora ocupan ese hueco; los de días
+  enteros se ven pero no te bloquean el día. Las filas repetidas se juntan.
+- **Tareas:** las que te asignen (tu fila de miembro en el campo de asignación) llegan como tareas con hueco y aviso;
+  al completarlas en Notion se cierran aquí, y si cambia la fecha te avisa. Se revisa cada hora.
+- **Preguntas:** "¿qué hay que llevar a la jornada del sábado?", "¿quién da la formación del 24?": el asistente busca en Notion,
+  lee las páginas y te contesta citándolas.
+
 ## Horario de la UC3M (opcional)
 
 Con `uc3m` en `config.js`: cada 3 h relee la web pública de horarios, avisa de cambios de aula y de sesiones
@@ -95,6 +108,7 @@ Todos con el mismo `CAL_TOKEN` (`?t=...`):
 | `/cal/clases.ics` | **Clases** (módulo uc3m) |
 | `/cal/practicas.ics` | **Prácticas** (naranja): laboratorios + fechas límite ⏰ de Moodle |
 | `/cal/examenes.ics` | **Exámenes** (rojo) |
+| `/cal/notion.ics` | **Eventos de tu Notion** (morado; módulo notion) |
 
 En el iPhone: Ajustes → Calendario → Cuentas → Añadir cuenta → Otra → Calendario suscrito (o, desde el Mac,
 Archivo → Nueva suscripción en iCloud, actualización cada hora). Los cambios se hacen por Telegram.
@@ -173,6 +187,8 @@ src/calendar.js   feeds .ics
 src/api.js        API del panel (cookie de sesión o Bearer DASH_TOKEN)
 src/auth.js       passkeys (WebAuthn a mano), sesiones y enlaces de /acceso
 src/subjects.js   área y asignatura de cada tarea (bloques del panel)
+src/notion.js     Notion: eventos, tareas asignadas y búsqueda (opcional)
+src/queue.js      mensajes en espera cuando no queda cuota de IA
 src/inbox.js      bandeja de tu web (opcional)
 src/weekly.js     resumen semanal
 src/social.js     asistente de X

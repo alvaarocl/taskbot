@@ -5,6 +5,7 @@
 import config from "../config.js";
 import { typeLabel } from "./sync.js";
 import { fixedAgenda } from "./overrides.js";
+import { cachedEvents } from "./notion.js";
 
 export const PREFS = config.prefs;
 
@@ -63,6 +64,14 @@ export async function loadBusy(env, from, to, skipId = null) {
       label: r.summary, shown: r.start, shownEnd: r.end,
     });
   }
+  // Eventos de Notion (lo último leído, sin red): con hora ocupan ese hueco; de día entero solo se ven (soft).
+  const notionName = config.notion?.name || "Notion";
+  for (const e of await cachedEvents(env)) {
+    if (e.date < from || e.date > to) continue;
+    busy.push(e.allDay
+      ? { date: e.date, start: "00:00", end: "23:59", allDay: true, soft: true, label: `🚀 ${e.title}`, where: notionName }
+      : { date: e.date, start: e.start, end: e.end, label: `🚀 ${e.title}`, where: notionName, fixed: true });
+  }
   // Días completos (p. ej. una hackathon sin horario): ocupan la jornada entera.
   const allDay = await env.DB.prepare(
     `SELECT id, text, due_date, location, tbc FROM items
@@ -92,7 +101,7 @@ export async function loadBusy(env, from, to, skipId = null) {
 // Huecos libres de un día, en minutos. `notBefore`: minuto a partir del cual cuenta (hoy = ahora).
 export function freeSlots(busy, date, notBefore = 0) {
   const [ws, we] = PREFS.window[isWeekend(date) ? "weekend" : "weekday"];
-  const blocks = busy.filter((b) => b.date === date).map((b) => [toMin(b.start), toMin(b.end)]);
+  const blocks = busy.filter((b) => b.date === date && !b.soft).map((b) => [toMin(b.start), toMin(b.end)]);
   if (!isWeekend(date)) blocks.push([toMin(PREFS.lunch[0]), toMin(PREFS.lunch[1])]);
   blocks.sort((a, b) => a[0] - b[0]);
 

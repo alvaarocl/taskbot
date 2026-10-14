@@ -12,6 +12,7 @@ import { enqueue } from "./queue.js";
 import { tg, insertItem, placeTask } from "./telegram.js";
 import { listItems, describe, todayLine, agendaBlock, applyChange, undoChange, UNDO, COLS } from "./assistant.js";
 import { aulaContext, courseOutline } from "./aulaglobal.js";
+import { searchNotion } from "./notion.js";
 import { conflictsFor, nowMadrid, addDays, dayLabel, toMin, fromMin } from "./brain.js";
 
 const HISTORY = "chat:history";
@@ -49,7 +50,7 @@ CÓMO TRABAJAS
 - Preguntas sobre su agenda, huecos, clases o exámenes: usa ver_agenda (y aula_global para avisos y notas de los profesores en ${moodle}) y responde con las horas EXACTAMENTE como salen.
 - Preguntas sobre el CONTENIDO de una asignatura ("¿qué vamos a hacer mañana en IS?", "¿qué toca en la práctica?", "¿de qué va el tema 3?", "¿qué hay que preparar para la sesión extra?"): llama SIEMPRE a las dos herramientas, ver_agenda (qué sesiones tiene ese día: tipo, hora y aula) y aula_asignatura (qué dice ${moodle} de esa semana o sesión: la planificación del profe si la hay —el calendario con lo que toca cada día—, actividades, instrucciones y avisos). Busca en la planificación la fila de esa fecha. Responde en cuatro o cinco líneas con lo que toca, citando lo que pone ${moodle}. Si no dice nada concreto de ese día, dilo y cuéntale lo más cercano (la semana o el tema en curso). No hables de otras asignaturas ni del resto del día salvo que pregunte.
 - Cambiar, mover, marcar hecho o borrar algo que ya existe: usa su id de la lista. Para borrar, llama a borrar directamente (una vez por elemento; los días de una serie se borran juntos): eso ya le pone un botón de confirmación, así que NO le preguntes antes por texto.
-- Si solo charla o pregunta algo general, contesta sin herramientas.
+${config.notion ? `- ${config.notion.name} vive en Notion. Sus eventos ya salen en la agenda con 🚀. Para cualquier otra cosa de ${config.notion.name} (un proyecto, quién lleva qué, un proceso, un acta, el detalle de un evento) usa notion_buscar y cita la página.\n` : ""}- Si solo charla o pregunta algo general, contesta sin herramientas.
 
 RESPUESTA FINAL
 Si al apuntar algo las herramientas devuelven choques (sobre todo exámenes o entregas), avísale claramente, con el día y la hora.
@@ -89,6 +90,8 @@ const TOOLS = [
   fn("aula_global", "Avisos recientes de los profesores y notas publicadas en el Moodle de la uni.", {}),
   fn("aula_asignatura", "Contenido de una asignatura en el Moodle de la uni (planificación de sesiones del profe incluida): temas o semanas, sesiones, prácticas, actividades con fechas, instrucciones del profesor y sus avisos recientes.",
     { asignatura: S("Nombre o alias, p. ej. 'Ingeniería del Software' o 'IS'") }, ["asignatura"]),
+  ...(config.notion ? [fn("notion_buscar", `Busca en el Notion de ${config.notion.name} y lee las páginas que encaje: eventos, proyectos, tareas, actas, procesos, contactos.`,
+    { consulta: S("Palabras clave, p. ej. 'jornada del sábado', 'formación', 'acta reunión'") }, ["consulta"])] : []),
   fn("crear_evento", "Apunta un evento: de un día o de varios (fecha → fecha_fin), con hora o de día completo sin horario.", {
     titulo: S("Título limpio, p. ej. 'Hackathon HackUPC'"),
     fecha: S("Primer día, YYYY-MM-DD"),
@@ -174,6 +177,10 @@ const HANDLERS = {
     if (to < from) to = from;
     if (to > addDays(from, 20)) to = addDays(from, 20);
     return { agenda: await agendaBlock(env, from, to, now) };
+  },
+
+  async notion_buscar(env, a) {
+    return searchNotion(env, a.consulta || "");
   },
 
   async aula_asignatura(env, a) {

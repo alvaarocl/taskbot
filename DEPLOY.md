@@ -107,6 +107,7 @@ https://taskbot.<subdominio>.workers.dev/cal/rutina.ics?t=CAL_TOKEN    rutina
 https://taskbot.<subdominio>.workers.dev/cal/clases.ics?t=CAL_TOKEN    clases (módulo uc3m)
 https://taskbot.<subdominio>.workers.dev/cal/practicas.ics?t=CAL_TOKEN prácticas y entregas
 https://taskbot.<subdominio>.workers.dev/cal/examenes.ics?t=CAL_TOKEN  exámenes
+https://taskbot.<subdominio>.workers.dev/cal/notion.ics?t=CAL_TOKEN    eventos de tu Notion (módulo notion)
 ```
 En Google Calendar: "Otros calendarios → Desde URL", con las mismas direcciones.
 
@@ -120,6 +121,18 @@ node scripts/moodle-token.mjs https://tu-moodle.edu
 ⏸ Pregunta si entra con usuario y contraseña de Moodle o con el login de la universidad (SSO) y sigue sus
 instrucciones. Comprueba el token y lo guarda como secreto `AULAGLOBAL_TOKEN` sin imprimirlo. Cuando caduque, el
 bot avisa por Telegram: se repite este paso.
+
+### Notion (eventos, tareas y búsqueda)
+Pon el bloque `notion` en `config.js` con los nombres de tus bases y campos (plantilla en `config.example.js`). El
+token, según lo que te deje tu espacio de trabajo:
+- **Token personal** (notion.so/developers/tokens → New token, capacidad "Notion API", caducidad 1 año): lee lo
+  mismo que tú. Si no puedes crearlo, es que en ese espacio solo pueden los administradores.
+- **Conexión interna** (la crea un administrador, con permiso solo de "Leer contenido"): hay que añadirla a las
+  páginas raíz (••• → Conexiones) para que vea lo que cuelga de ellas.
+```bash
+pbpaste | npx wrangler secret put NOTION_TOKEN   # con el token copiado: no se escribe ni se imprime
+```
+⏸ Suscribe el calendario `https://taskbot.<subdominio>.workers.dev/cal/notion.ics?t=CAL_TOKEN`.
 
 ### Modelo más rápido (Groq, gratis)
 El asistente usa gpt-oss-120b en Workers AI (unos 370 de las 10.000 neuronas gratis al día por mensaje). Con una

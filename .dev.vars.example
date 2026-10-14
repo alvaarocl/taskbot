@@ -25,6 +25,9 @@ AULAGLOBAL_TOKEN=
 # Groq: el mismo modelo del asistente (gpt-oss-120b), más rápido y sin gastar neuronas de Workers AI. Gratis.
 GROQ_API_KEY=
 
+# Notion: conexión interna o token personal, para el módulo notion de config.js
+NOTION_TOKEN=
+
 # GitHub: token fine-grained (solo lectura de contenido) para que el resumen semanal vea repos privados
 GITHUB_TOKEN=
 

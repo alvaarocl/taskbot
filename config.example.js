@@ -90,6 +90,19 @@ export default {
     maxRepos: 6, // repos con actividad que se miran por organización (cada uno es una petición)
   },
 
+  // OPCIONAL: un espacio de Notion (secreto NOTION_TOKEN, ver DEPLOY.md). Solo lee. Pon aquí los nombres de TUS bases
+  // y campos; cualquier parte (events, tasks, me) se puede quitar. Apagado: notion: null.
+  //   events → filas con fecha cuyo tipo es un evento: calendario /cal/notion.ics y tu agenda
+  //   tasks  → las que tienen tu fila de `me` en el campo de asignación: tareas de taskbot
+  //   y el asistente busca y lee páginas de ese Notion para responderte.
+  notion: null,
+  // notion: {
+  //   name: "Mi asociación", category: "asociacion",
+  //   events: { database: "Proyectos", date: "Fecha límite", type: "Tipo", types: ["Evento", "Evento interno"] },
+  //   tasks: { database: "Tareas", date: "Fecha límite", assignee: "Asociado", status: "Estado", done: ["Completada"], priority: "Prioridad" },
+  //   me: { database: "Miembros", email: "Correo", value: "tu@correo.com" },
+  // },
+
   // Asistente de X (src/social.js): avisa y escribe borradores; nunca publica.
   social: {
     // Quién escribe: lo usa la IA para los borradores.

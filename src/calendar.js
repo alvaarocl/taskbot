@@ -1,6 +1,7 @@
 import config from "../config.js";
 import { typeLabel } from "./sync.js";
 import { fixedAgenda } from "./overrides.js";
+import { fetchEvents, cachedEvents } from "./notion.js";
 
 const UNI = config.uc3m?.label || "Uni";
 const CAMPUS = config.uc3m?.campus ? ` · ${config.uc3m.campus}` : "";
@@ -62,6 +63,15 @@ export async function handleScheduleFeed(url, env) {
     name = `${UNI} · Exámenes`;
     color = "#FF3B30";
     events = (await fixedAgenda(env)).examEvents;
+  } else if (path === "/cal/notion.ics" && config.notion) {
+    // Se lee de Notion en el momento (cada vez que el calendario se actualiza); si Notion falla, lo último guardado.
+    name = config.notion.name || "Notion";
+    color = "#AF52DE";
+    const list = await fetchEvents(env).catch((e) => (console.error("notion", e?.message || e), cachedEvents(env)));
+    events = list.map((e) => ({
+      uid: e.uid, date: e.date, summary: e.title, allDay: e.allDay, start: e.start, end: e.end,
+      description: [e.type, e.url].filter(Boolean).join("\n"), alarmMin: e.allDay ? null : 60,
+    }));
   } else if (path === "/cal/rutina.ics") {
     name = "Rutina";
     events = (await fixedAgenda(env)).routine;

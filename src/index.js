@@ -11,6 +11,7 @@ import { handleInbox, purgeInbox } from "./inbox.js";
 import { buildWeekly } from "./weekly.js";
 import { agent } from "./agent.js";
 import { processQueue } from "./queue.js";
+import { fetchEvents, syncNotionTasks } from "./notion.js";
 
 // Deben coincidir con los crons de wrangler.toml. La cuenta gratuita permite 5 crons en total
 // (entre todos los workers), así que el de "45" reparte el trabajo según la hora.
@@ -62,6 +63,8 @@ export default {
       // Máximo 50 peticiones externas por ejecución: el horario usa ~4, material y notas ~15 y el asistente de X ~14 (~18 cuando toca Trending por lenguajes o eventos).
       if (hour % 3 === 0) ctx.waitUntil(syncUc3m(env));
       else if (hour % 3 === 1) ctx.waitUntil(syncAulaMaterial(env));
+      // Notion: eventos al día (agenda y calendario) y tareas asignadas a ti (~4 peticiones).
+      ctx.waitUntil(fetchEvents(env).then(() => syncNotionTasks(env)).catch((e) => console.error("notion", e?.message || e)));
       // El resumen gasta ~10 peticiones de GitHub: ese tick se salta el asistente de X para no pasar de 50.
       if (!weekly) ctx.waitUntil(hourlySocial(env));
     } else console.warn("cron desconocido:", event.cron);

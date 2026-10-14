@@ -52,6 +52,7 @@ Everything personal lives in an untracked `config.js` ([template](config.example
 | University timetable (`uc3m`) | Your enrolment | UC3M's public timetable site. Elsewhere, remove it and add classes as routine or events |
 | Weekly summary (`weekly`) | Optional `GITHUB_TOKEN` | Without the token, public repos only |
 | X assistant (`social`) | Nothing | Sources, cadence and your voice are in the config |
+| Notion (`notion`) | `NOTION_TOKEN` (internal connection or personal token) | A team or club workspace: dated events → calendar feed and agenda, tasks assigned to you → tasks, and the assistant searches and reads its pages. Read-only |
 | Website inbox (`panel.inbox`) | Another Worker of yours | Contact-form messages and bookings pushed over a service binding ([contract](src/inbox.js)) |
 | Faster model (Groq) | Optional `GROQ_API_KEY` (free) | Same model; otherwise Workers AI |
 
