@@ -24,8 +24,9 @@ const MAX_SERIES_DAYS = 31;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^\d{2}:\d{2}$/;
-const okDate = (d) => (DATE.test(d || "") ? d : null);
-const okTime = (t) => (TIME.test(t || "") ? t : null);
+// Los modelos a veces mandan "2026-10-15T00:00:00" o "08:00:00": se queda la parte que interesa.
+const okDate = (d) => { const x = String(d || "").slice(0, 10); return DATE.test(x) ? x : null; };
+const okTime = (t) => { const x = String(t || "").replace(/^\d{4}-\d{2}-\d{2}T/, "").slice(0, 5); return TIME.test(x) ? x : null; };
 
 // ---------- prompt ----------
 
@@ -296,7 +297,7 @@ const HANDLERS = {
   async editar(env, a, { run }) {
     const item = await env.DB.prepare("SELECT * FROM items WHERE id=?").bind(Number(a.id)).first();
     if (!item) return { error: `No existe #${a.id}.` };
-    const msg = await applyChange(env, item, "editar", { fecha: a.fecha, hora: a.hora, duracion_min: a.duracion_min, titulo: a.titulo, que: a.que });
+    const msg = await applyChange(env, item, "editar", { fecha: okDate(a.fecha), hora: okTime(a.hora), duracion_min: a.duracion_min, titulo: a.titulo, que: a.que });
     if (!msg.startsWith("🤔")) {
       run.edited.push(item.id);
       run.log.push(`editado #${item.id}`);
