@@ -12,7 +12,7 @@ import { buildWeekly } from "./weekly.js";
 import { agent } from "./agent.js";
 import { processQueue } from "./queue.js";
 import { fetchEvents, syncNotionTasks } from "./notion.js";
-import { wakeTick, jarvisReport } from "./wake.js";
+import { wakeTick, jarvisReport, jarvisJob } from "./wake.js";
 
 // Deben coincidir con los crons de wrangler.toml. La cuenta gratuita permite 5 crons en total
 // (entre todos los workers), así que el de "45" reparte el trabajo según la hora.
@@ -39,8 +39,9 @@ export default {
     // Mensajes y reservas que empuja el worker `api` por su service binding (host "internal", solo existe por ahí).
     if (url.pathname === "/internal/inbox") return url.hostname === "internal" ? handleInbox(request, env) : new Response("not found", { status: 404 });
     // El workflow de Jarvis avisa de cómo fue la llamada (su propio token, no el del panel).
-    if (url.pathname === "/api/jarvis" && request.method === "POST") {
+    if (url.pathname === "/api/jarvis") {
       if (!env.JARVIS_TOKEN || request.headers.get("authorization") !== `Bearer ${env.JARVIS_TOKEN}`) return new Response("unauthorized", { status: 401 });
+      if (request.method === "GET") return Response.json(await jarvisJob(env, url.searchParams.get("job")) || { error: "not found" });
       return Response.json(await jarvisReport(env, await request.json().catch(() => null)));
     }
     if (url.pathname.startsWith("/api/")) return handleApi(request, env);

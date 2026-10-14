@@ -15,6 +15,7 @@ import { cachedEvents } from "./notion.js";
 const PLAN = "wake:plan"; // { once: { "YYYY-MM-DD": "HH:MM" }, daily: { days: [1..7], time: "HH:MM" } | null }
 const SENT = (date) => `wake:sent:${date}`;
 const TEXT = (date) => `wake:text:${date}`;
+const JOB = (id) => `wake:job:${id}`; // { text, target, voice, date }: el workflow lo pide por /api/jarvis (no va en sus registros)
 const DAY_NAMES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
 const cfg = () => config.jarvis || null;
@@ -138,13 +139,17 @@ export async function buildBriefing(env, date, time) {
 
 async function dispatch(env, wakeAtIso, text) {
   const c = cfg();
+  const job = crypto.randomUUID();
+  await env.FILES.put(JOB(job), JSON.stringify({
+    text: text.slice(0, 6000), target: String(env.OWNER_CHAT_ID), voice: c.voice || "es-ES-AlvaroNeural", date: wakeAtIso.slice(0, 10),
+  }), { expirationTtl: 86400 });
   const r = await fetch(`https://api.github.com/repos/${c.repo}/actions/workflows/${c.workflow || "call.yml"}/dispatches`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${env.JARVIS_GH_TOKEN}`, accept: "application/vnd.github+json",
       "x-github-api-version": "2022-11-28", "user-agent": "taskbot",
     },
-    body: JSON.stringify({ ref: c.ref || "main", inputs: { wake_at: wakeAtIso, text: text.slice(0, 6000), voice: c.voice || "es-ES-AlvaroNeural", target: String(env.OWNER_CHAT_ID) } }),
+    body: JSON.stringify({ ref: c.ref || "main", inputs: { wake_at: wakeAtIso, job } }),
   });
   if (!r.ok) throw new Error(`GitHub ${r.status}: ${(await r.text()).slice(0, 200)}`);
 }
@@ -183,11 +188,28 @@ export async function wakeTick(env, at = Date.now()) {
   }
 }
 
-/** POST /api/jarvis desde el workflow: { status: "answered" | "no_answer", wake_at }. */
+/** /llamame: te llama ya (en cuanto arranca GitHub, 1–3 min) con el resumen de lo que te queda hoy. */
+export async function callNow(env) {
+  const now = nowMadrid();
+  const text = await buildBriefing(env, now.date, now.time);
+  await env.FILES.put(TEXT(now.date), text, { expirationTtl: 2 * 86400 });
+  await dispatch(env, new Date().toISOString(), text);
+}
+
+/** GET /api/jarvis?job=…: lo que tiene que decir la llamada. */
+export async function jarvisJob(env, id) {
+  return (id && (await env.FILES.get(JOB(id), { type: "json" }))) || null;
+}
+
+/** POST /api/jarvis desde el workflow: { status: "answered" | "no_answer" | "privacy", job }. */
 export async function jarvisReport(env, body) {
-  const date = String(body?.wake_at || "").slice(0, 10);
+  const job = await jarvisJob(env, body?.job);
   if (body?.status === "answered") return { ok: true };
-  const text = (await env.FILES.get(TEXT(date))) || "No he podido recuperar el resumen.";
+  if (body?.status === "privacy") {
+    await tg(env, "sendMessage", { chat_id: env.OWNER_CHAT_ID, text: "📵 Jarvis no puede llamarte: tu privacidad de Telegram lo bloquea. En tu cuenta: Ajustes → Privacidad y seguridad → Llamadas → «Todos», o en «Siempre permitir» añade la cuenta de Jarvis. Luego prueba otra vez con /llamame." });
+    return { ok: true };
+  }
+  const text = job?.text || "No he podido recuperar el resumen.";
   await tg(env, "sendMessage", { chat_id: env.OWNER_CHAT_ID, text: `📞 Te he llamado y no lo has cogido. Tu día:\n\n${text}`.slice(0, 4000) });
   return { ok: true };
 }

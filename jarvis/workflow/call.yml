@@ -1,14 +1,13 @@
 # Workflow del repo PRIVADO que hace las llamadas (cópialo a .github/workflows/call.yml de ese repo).
-# Lo lanza taskbot con workflow_dispatch un rato antes de la hora. Privado porque el texto de tu día va en las
-# entradas del workflow (en un repo público se verían). El código se descarga del repo público de taskbot.
+# Lo lanza taskbot con workflow_dispatch un rato antes de la hora, con solo la hora y un código de encargo: el texto
+# se pide a taskbot en la llamada. Mejor en un repo privado (las horas a las que te despiertas se verían). El código
+# se descarga del repo público de taskbot.
 name: call
 on:
   workflow_dispatch:
     inputs:
       wake_at: { description: "Hora de la llamada (ISO con zona)", required: true }
-      text: { description: "Lo que dirá", required: true }
-      voice: { description: "Voz de edge-tts", required: false, default: "es-ES-AlvaroNeural" }
-      target: { description: "Id de Telegram al que llamar", required: true }
+      job: { description: "Código del encargo en taskbot (el texto se pide a taskbot, no va aquí)", required: true }
 concurrency: { group: call, cancel-in-progress: false }
 jobs:
   call:
@@ -30,7 +29,5 @@ jobs:
           REPORT_URL: ${{ secrets.REPORT_URL }}
           REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
           WAKE_AT: ${{ inputs.wake_at }}
-          TEXT: ${{ inputs.text }}
-          VOICE: ${{ inputs.voice }}
-          TARGET: ${{ inputs.target }}
+          JOB: ${{ inputs.job }}
         run: python call.py

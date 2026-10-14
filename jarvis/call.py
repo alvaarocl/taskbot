@@ -1,17 +1,17 @@
 """Jarvis: te llama por Telegram a la hora de despertarte y te cuenta el día.
 
-Lo lanza taskbot (workflow_dispatch de GitHub Actions) un rato antes de la hora, con el texto ya escrito.
+Lo lanza taskbot (workflow_dispatch de GitHub Actions) un rato antes de la hora; el texto ya escrito se pide a
+taskbot con el código del encargo (así no aparece en los registros de GitHub).
 Este script: texto → voz (edge-tts) → espera a la hora → llama desde la cuenta "Jarvis" (Telethon + py-tgcalls)
 → reproduce el audio → cuelga. Si no lo coges o falla la conexión, vuelve a llamar. Al final le dice a taskbot
 cómo ha ido (para que te deje el resumen por escrito si no lo cogiste).
 
 Variables (secretos de GitHub y entradas del workflow):
   TG_API_ID, TG_API_HASH, TG_SESSION  cuenta Jarvis (sesión de jarvis/login.py)
-  TARGET                              tu id de usuario de Telegram (lo pasa taskbot: OWNER_CHAT_ID)
   WAKE_AT                             hora de la llamada, ISO con zona (2026-10-15T08:00:00+02:00)
-  TEXT                                lo que dirá
-  VOICE                               voz de edge-tts (por defecto es-ES-AlvaroNeural)
-  REPORT_URL, REPORT_TOKEN            opcional: taskbot, para avisar del resultado
+  JOB                                 código del encargo en taskbot
+  REPORT_URL, REPORT_TOKEN            taskbot (/api/jarvis): de ahí sale el texto, a quién llamar y la voz,
+                                      y ahí se avisa del resultado
 No imprime el texto ni ningún secreto: los registros solo dicen qué paso se está dando.
 """
 
@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 import edge_tts
 from pytgcalls import PyTgCalls, filters
 from pytgcalls.exceptions import CallBusy, CallDeclined, CallDiscarded, TimedOutAnswer
+from telethon.errors import UserPrivacyRestrictedError
 from pytgcalls.types import ChatUpdate, MediaStream, StreamEnded
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -39,16 +40,22 @@ def log(msg):
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+# Cloudflare bloquea el user-agent por defecto de Python: hay que presentarse.
+HEADERS = {"authorization": f"Bearer {os.environ['REPORT_TOKEN']}", "content-type": "application/json", "user-agent": "jarvis/1.0 (taskbot)"}
+
+
+def taskbot(method, body=None, query=""):
+    req = urllib.request.Request(os.environ["REPORT_URL"] + query, method=method, headers=HEADERS,
+                                 data=json.dumps(body).encode() if body is not None else None)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
+
+
 def report(status, attempts):
-    url, token = os.environ.get("REPORT_URL"), os.environ.get("REPORT_TOKEN")
-    if not url or not token:
-        return
-    body = json.dumps({"status": status, "attempts": attempts, "wake_at": os.environ["WAKE_AT"]}).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={"authorization": f"Bearer {token}", "content-type": "application/json"})
     try:
-        urllib.request.urlopen(req, timeout=20)
+        taskbot("POST", {"status": status, "attempts": attempts, "job": os.environ["JOB"]})
     except Exception as e:  # el aviso no puede tumbar la llamada
-        log(f"no he podido avisar a taskbot: {type(e).__name__}")
+        log(f"no he podido avisar a taskbot: {type(e).__name__} {getattr(e, 'code', '')}")
 
 
 async def speak(text, voice):
@@ -64,12 +71,15 @@ async def wait_until(when):
 
 
 async def main():
-    target = int(os.environ["TARGET"])
+    job = taskbot("GET", query=f"?job={os.environ['JOB']}")
+    if not job.get("text"):
+        log("taskbot no tiene el encargo (caducado o código erróneo)")
+        return 1
+    target = int(job["target"])
     wake_at = datetime.fromisoformat(os.environ["WAKE_AT"])
-    voice = os.environ.get("VOICE") or "es-ES-AlvaroNeural"
 
     log("generando la voz")
-    await speak(os.environ["TEXT"], voice)
+    await speak(job["text"], job.get("voice") or "es-ES-AlvaroNeural")
 
     client = TelegramClient(StringSession(os.environ["TG_SESSION"]), int(os.environ["TG_API_ID"]), os.environ["TG_API_HASH"])
     calls = PyTgCalls(client)
@@ -96,6 +106,11 @@ async def main():
             finished.clear()
             try:
                 await calls.play(target, stream)
+            except UserPrivacyRestrictedError:
+                log("tu privacidad de Telegram no deja llamar a esta cuenta")
+                report("privacy", attempt)
+                await client.disconnect()
+                return 3
             except (TimedOutAnswer, CallDeclined, CallBusy, CallDiscarded) as e:
                 log(f"sin respuesta: {type(e).__name__}")
                 break  # no lo ha cogido: esperar antes de volver a llamar

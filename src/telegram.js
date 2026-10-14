@@ -10,6 +10,7 @@ import { enqueueAudio } from "./queue.js";
 import { socialCommand, socialCallback } from "./social.js";
 import { createRecoveryLink } from "./auth.js";
 import { buildWeekly } from "./weekly.js";
+import { jarvisOn, callNow } from "./wake.js";
 import {
   agendaText, weekFreeText, scheduleTask, conflictsFor, nowMadrid, dayLabel,
   addDays, toMin, fromMin,
@@ -84,6 +85,7 @@ async function handleMessage(msg, env) {
         { command: "lista", description: "Tareas pendientes" },
         { command: "planificar", description: "Colocar tareas sin hueco" },
         { command: "resumen", description: "Resumen de la semana" },
+        { command: "llamame", description: "Jarvis te llama ya y te cuenta el día" },
         { command: "acceso", description: "Enlace para entrar al panel" },
         { command: "post", description: "Borrador de post para X" },
         { command: "radar", description: "Lo más caliente ahora para X" },
@@ -137,6 +139,19 @@ async function handleMessage(msg, env) {
       text: `🔑 Entra al panel con este enlace (vale una vez y caduca en 10 min):\n${link}\n\nDentro, añade una passkey para entrar con Face ID.\nSi no lo has pedido tú, ignóralo.`,
       link_preview_options: { is_disabled: true },
     });
+    return;
+  }
+  if (text === "/llamame") {
+    if (!jarvisOn(env)) {
+      await tg(env, "sendMessage", { chat_id: chatId, text: "Jarvis no está configurado (falta config.jarvis o el secreto JARVIS_GH_TOKEN)." });
+      return;
+    }
+    await tg(env, "sendMessage", { chat_id: chatId, text: "📞 Preparando la llamada: te suena en 1–3 minutos." });
+    try {
+      await callNow(env);
+    } catch (e) {
+      await tg(env, "sendMessage", { chat_id: chatId, text: `⚠️ No he podido lanzar la llamada: ${String(e?.message || e).slice(0, 200)}` });
+    }
     return;
   }
   if (text === "/resumen") {
