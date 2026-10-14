@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --local-upstream localhost:8787",
     "deploy": "wrangler deploy",
     "db:schema": "wrangler d1 execute taskbot --remote --file=schema.sql"
   }

@@ -1,17 +1,36 @@
-# Copia este archivo a .dev.vars para desarrollo local.
-# En producción se configuran con: npx wrangler secret put NOMBRE
+# Copia este archivo a .dev.vars para desarrollo local (no se sube a git).
+# En producción cada uno se guarda con: npx wrangler secret put NOMBRE
 
+# ---- Obligatorios ----
 # Token del bot que te da @BotFather
 TELEGRAM_TOKEN=123456:ABC...
 
 # Cadena aleatoria que tú inventas; se usa al registrar el webhook
 TG_WEBHOOK_SECRET=una-cadena-aleatoria-larga
 
-# Contraseña del dashboard (la que escribirás en la PWA la primera vez)
-DASH_TOKEN=otra-cadena-aleatoria-larga
-
-# Token del feed de calendario (.ics), distinto de DASH_TOKEN a propósito
-CAL_TOKEN=otra-cadena-aleatoria-larga-mas
-
 # Tu chat id de Telegram. El bot te lo dice la primera vez que le escribas.
 OWNER_CHAT_ID=
+
+# Clave para clientes máquina (app de Mac, scripts): Authorization: Bearer DASH_TOKEN.
+# El panel en el navegador entra con passkey (o con /acceso en Telegram), no con esto.
+DASH_TOKEN=otra-cadena-aleatoria-larga
+
+# Token de los feeds de calendario (.ics), distinto de DASH_TOKEN a propósito
+CAL_TOKEN=otra-cadena-aleatoria-larga-mas
+
+# ---- Opcionales ----
+# Moodle (Aula Global en la UC3M): token de la app móvil de Moodle. Sin él, ese módulo se apaga.
+AULAGLOBAL_TOKEN=
+
+# Groq: el mismo modelo del asistente (gpt-oss-120b), más rápido y sin gastar neuronas de Workers AI. Gratis.
+GROQ_API_KEY=
+
+# GitHub: token fine-grained (solo lectura de contenido) para que el resumen semanal vea repos privados
+GITHUB_TOKEN=
+
+# ---- Solo en local ----
+# Origen del panel para las passkeys (en producción sale de config.panel.origin)
+PANEL_ORIGIN=http://localhost:8787
+
+# El bot escribe lo que mandaría a Telegram en el log, sin mandarlo
+TG_DRY_RUN=1

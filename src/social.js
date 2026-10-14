@@ -97,7 +97,7 @@ async function remember(env, item) {
 const recall = async (env, n) => env.FILES.get(`social:item:${n}`, { type: "json" });
 const kvJson = async (env, key, fallback) => (await env.FILES.get(key, { type: "json" })) ?? fallback;
 
-async function aiJson(env, system, user, maxTokens = 700) {
+export async function aiJson(env, system, user, maxTokens = 700) {
   const res = await env.AI.run(MODEL, {
     messages: [{ role: "system", content: system }, { role: "user", content: user }],
     max_tokens: maxTokens,
@@ -547,7 +547,7 @@ export async function hourlySocial(env) {
 
 // ---------- borradores y comandos ----------
 
-function voiceRules() {
+export function voiceRules() {
   return `Escribes en nombre de ${cfg().voice} ` +
     "Reglas: español de España natural, en primera persona; frases cortas; una idea concreta y una opinión clara; " +
     "sin hashtags; como mucho un emoji; nada de frases de LinkedIn ni de vendedor (\"emocionado de anunciar\", \"game changer\", \"🚀\", \"hilo 🧵👇\"); " +

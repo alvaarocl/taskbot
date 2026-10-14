@@ -1,0 +1,36 @@
+# taskbot — bot de Telegram + panel PWA en Cloudflare Workers.
+# Cópialo a wrangler.toml (no se sube a git) y rellena los ids: cp wrangler.example.toml wrangler.toml
+name = "taskbot"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+# Opcional: el panel en un dominio tuyo de Cloudflare (wrangler crea el registro DNS). Tiene que coincidir con
+# config.panel.origin. Sin dominio propio, deja esto comentado y usa https://taskbot.<subdominio>.workers.dev.
+# routes = [{ pattern = "panel.tudominio.com", custom_domain = true }]
+workers_dev = true
+
+# Panel PWA (archivos estáticos en /public). Rutas como /recuperar caen en index.html.
+# El worker va primero en todo: así redirige workers.dev → panel y los feeds/API no caen en el fallback de la SPA.
+[assets]
+directory = "public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
+# Base de datos: el id lo da `npx wrangler d1 create taskbot`
+[[d1_databases]]
+binding = "DB"
+database_name = "taskbot"
+database_id = "RELLENAR"
+
+# Archivos, caché y estado (KV, gratis sin tarjeta): el id lo da `npx wrangler kv namespace create FILES`
+[[kv_namespaces]]
+binding = "FILES"
+id = "RELLENAR"
+
+# IA gratuita de Cloudflare (asistente, transcripción de audios, PDFs)
+[ai]
+binding = "AI"
+
+# Crons en UTC (la cuenta gratis permite 5 entre todos los workers). Los buenos días van en el de "45" a las 7:45 de Madrid.
+[triggers]
+crons = ["15 * * * *", "45 * * * *"]

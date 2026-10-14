@@ -3,7 +3,7 @@ import WidgetKit
 
 private let apiURL = URL(string: taskbotBaseURL + "/api/items?status=pendiente&kind=tarea")!
 private let dashboardURL = URL(string: taskbotBaseURL)!
-private let appGroupID = "group.com.alvarocarpintero.taskbot"
+private let appGroupID = taskbotAppGroupID
 
 struct TodoItem: Decodable, Identifiable {
     let id: Int

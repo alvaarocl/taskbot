@@ -1,21 +1,23 @@
-// Aula Global (Moodle UC3M) con el token de la app móvil (secreto AULAGLOBAL_TOKEN, lo saca
-// ~/obsidian/aulaglobal/login.mjs). Solo lectura: nunca entrega ni publica nada.
+// Tu Moodle (en la UC3M, Aula Global) con el token de la app móvil de Moodle (secreto AULAGLOBAL_TOKEN;
+// cómo sacarlo en DEPLOY.md). Sitio, nombre y curso en config.aulaGlobal. Solo lectura: nunca entrega ni publica nada.
 //
 // Cada hora (syncAulaGlobal):
 //   - entregas y cuestionarios pendientes → tareas con fecha límite y hueco en la agenda
 //   - entregado → tarea hecha · cambia la fecha → aviso · recordatorio 24 h y 3 h antes
 //   - avisos y foros de los profesores → aviso por Telegram
 // Cada 3 h (syncAulaMaterial):
-//   - material nuevo o actualizado → aviso (la descarga al Mac la hace ~/obsidian/aulaglobal)
+//   - material nuevo o actualizado → aviso
 //   - notas nuevas en Calificaciones → aviso
 // Lo último de avisos y notas se guarda en KV para que el asistente pueda responder sobre ello.
 
 import config from "../config.js";
 import { tg, itemKeyboard } from "./telegram.js";
 import { dayLabel, nowMadrid } from "./brain.js";
+import { subjectOf } from "./subjects.js";
 
-const SITE = "https://aulaglobal.uc3m.es";
-const YEAR = config.aulaGlobal.year; // asignaturas de este curso: "… 26/27-1C" / "… 26/27-2C"
+const SITE = (config.aulaGlobal?.site || "").replace(/\/$/, "");
+const NAME = config.aulaGlobal?.name || "Moodle";
+const YEAR = config.aulaGlobal?.year || ""; // asignaturas de este curso: "… 26/27-1C" / "… 26/27-2C"; "" = todas
 const K = {
   files: "ag:files", forums: "ag:forums", avisos: "ag:avisos", grades: "ag:grades",
   alert: "ag:token-alert", remind: (src, h) => `ag:remind:${src}:${h}`,
@@ -45,11 +47,11 @@ async function writeIfChanged(env, key, prev, next) {
 
 // Asignaturas de este curso. Si el token ya no vale, avisa (una vez al día) y devuelve null.
 async function connect(env) {
-  if (!env.AULAGLOBAL_TOKEN || !env.OWNER_CHAT_ID) return null;
+  if (!SITE || !env.AULAGLOBAL_TOKEN || !env.OWNER_CHAT_ID) return null; // módulo apagado
   try {
     const { userid } = await call(env, "core_webservice_get_site_info");
     const courses = (await call(env, "core_enrol_get_users_courses", { userid: String(userid) }))
-      .filter((c) => c.fullname.includes(`${YEAR}-`));
+      .filter((c) => !YEAR || c.fullname.includes(YEAR));
     await env.FILES.delete(K.alert);
     const ids = Object.fromEntries(courses.map((c, i) => [`courseids[${i}]`, String(c.id)]));
     return { userid, courses, ids, names: Object.fromEntries(courses.map((c) => [c.id, shortName(c)])) };
@@ -57,7 +59,7 @@ async function connect(env) {
     if (!["invalidtoken", "accessexception"].includes(e.code)) throw e;
     if (!(await env.FILES.get(K.alert))) {
       await env.FILES.put(K.alert, "1", { expirationTtl: 86400 });
-      await say(env, "🔑 El acceso a Aula Global ha caducado.\nEn el Mac: cd ~/obsidian/aulaglobal && node login.mjs");
+      await say(env, `🔑 El acceso a ${NAME} ha caducado. Saca un token nuevo y guárdalo con npx wrangler secret put AULAGLOBAL_TOKEN (ver DEPLOY.md).`);
     }
     return null;
   }
@@ -121,24 +123,24 @@ async function syncTasks(env, pending) {
     const minutes = w.quiz ? 45 : 120;
 
     if (!item) {
-      if (w.done) continue; // ya entregado antes de conectar Aula Global
+      if (w.done) continue; // ya entregado antes de conectar Moodle
       const late = dueDate < today;
       const res = await env.DB.prepare(
         `INSERT INTO items (kind, text, category, priority, due_date, due_at, duration_min, source, url)
          VALUES ('tarea', ?, 'uni', ?, ?, ?, ?, ?, ?)`
       ).bind(label, late ? "urgente" : "normal", dueDate, dueAt, minutes, w.source, w.url).run();
       const id = res.meta.last_row_id;
-      await say(env, `${late ? "⚠️ Sin entregar en Aula Global" : "📌 Nueva en Aula Global"}\n${label}\n📅 ${late ? "venció" : "vence"} el ${when}\n${w.url}`,
+      await say(env, `${late ? `⚠️ Sin entregar en ${NAME}` : `📌 Nueva en ${NAME}`}\n${label}\n📅 ${late ? "venció" : "vence"} el ${when}\n${w.url}`,
         { reply_markup: itemKeyboard(id, "tarea") });
       continue;
     }
 
     if (w.done && item.status === "pendiente") {
       await env.DB.prepare("UPDATE items SET status='hecha', done_at=datetime('now') WHERE id=?").bind(item.id).run();
-      await say(env, `✅ Entregado en Aula Global: ${w.name} · ${w.course}`);
+      await say(env, `✅ Entregado en ${NAME}: ${w.name} · ${w.course}`);
     } else if (!w.done && item.status === "pendiente" && item.due_at !== dueAt) {
       await env.DB.prepare("UPDATE items SET due_date=?, due_at=? WHERE id=?").bind(dueDate, dueAt, item.id).run();
-      if (item.due_at) await say(env, `📅 Cambia la fecha en Aula Global: ${label}\nAhora vence el ${when}`);
+      if (item.due_at) await say(env, `📅 Cambia la fecha en ${NAME}: ${label}\nAhora vence el ${when}`);
     }
   }
 }
@@ -221,7 +223,7 @@ async function notifyNewMaterial(env, { courses, names }) {
   await writeIfChanged(env, K.files, prev, next);
   const blocks = Object.entries(news).map(([course, files]) =>
     `📚 ${course}\n${files.slice(0, 10).join("\n")}${files.length > 10 ? `\n…y ${files.length - 10} más` : ""}`);
-  if (blocks.length) await say(env, `Material nuevo en Aula Global:\n\n${blocks.join("\n\n")}\n\nSe descarga solo en Documents/26.27/<asignatura>.`);
+  if (blocks.length) await say(env, `Material nuevo en ${NAME}:\n\n${blocks.join("\n\n")}`);
 }
 
 async function notifyGrades(env, { userid, courses, names }) {
@@ -240,11 +242,98 @@ async function notifyGrades(env, { userid, courses, names }) {
     }
   }
   await writeIfChanged(env, K.grades, prev, next);
-  if (news.length) await say(env, `Notas nuevas en Aula Global:\n\n${news.join("\n")}`);
+  if (news.length) await say(env, `Notas nuevas en ${NAME}:\n\n${news.join("\n")}`);
 }
 
 // Para el asistente: últimos avisos y notas.
 export async function aulaContext(env) {
   const [avisos, grades] = await Promise.all([readJSON(env, K.avisos), readJSON(env, K.grades)]);
   return { avisos: avisos || [], grades: grades || {} };
+}
+
+// Para el asistente: qué hay en una asignatura (temas/semanas, sesiones, prácticas, actividades con fecha,
+// etiquetas con instrucciones del profe y sus últimos avisos). Responde a "¿qué hacemos mañana en IS?".
+const MAX_SECTION = 1500;
+const MAX_OUTLINE = 14000;
+const norm = (s) => String(s || "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+// Documentos de planificación (calendario de sesiones, cronograma): se leen enteros, porque ahí está
+// qué toca cada día. PDF → texto con env.AI.toMarkdown, guardado en KV hasta que el profe lo cambie.
+const PLAN = /calendario|cronograma|planificaci|programaci|horario|time ?plan|schedule/i;
+const MAX_PLAN = 12000;
+
+async function readPlan(env, mod, file) {
+  const key = `ag:doc:${mod.id}:${file.timemodified}`;
+  const cached = await env.FILES.get(key);
+  if (cached) return cached;
+  try {
+    const r = await fetch(`${file.fileurl}${file.fileurl.includes("?") ? "&" : "?"}token=${env.AULAGLOBAL_TOKEN}`);
+    if (!r.ok) return null;
+    const buf = await r.arrayBuffer();
+    if (buf.byteLength > 8e6) return null;
+    const [res] = await env.AI.toMarkdown([{ name: fixName(file.filename), blob: new Blob([buf], { type: file.mimetype || "application/pdf" }) }]);
+    if (!res || res.format === "error" || !res.data) return null;
+    const text = res.data.replace(/\n{3,}/g, "\n\n").slice(0, MAX_PLAN);
+    await env.FILES.put(key, text, { expirationTtl: 30 * 86400 });
+    return text;
+  } catch (e) {
+    console.error("plan", file.filename, e?.message || e);
+    return null;
+  }
+}
+
+export async function courseOutline(env, query) {
+  const ag = await connect(env);
+  if (!ag) return { error: `${NAME} no está conectado (falta el token o ha caducado).` };
+  const wanted = norm(subjectOf(query) || query);
+  const words = wanted.split(" ").filter((w) => w.length > 2);
+  const scored = ag.courses.map((c) => {
+    const n = norm(shortName(c));
+    return { c, score: n.includes(wanted) ? 100 : words.filter((w) => n.includes(w)).length };
+  }).sort((a, b) => b.score - a.score);
+  if (!scored.length || !scored[0].score) {
+    return { error: `No encuentro esa asignatura. Las de este curso son: ${ag.courses.map(shortName).join(", ")}.` };
+  }
+  const course = scored[0].c;
+  const sections = await call(env, "core_course_get_contents", { courseid: String(course.id) });
+
+  const when = (ts) => { const m = madrid(ts); return `${dayLabel(m.date)} ${m.time}`; };
+  const parts = [];
+  for (const sec of sections) {
+    if (sec.uservisible === false) continue;
+    const lines = [];
+    const summary = strip(sec.summary);
+    if (summary) lines.push(summary.slice(0, 500));
+    for (const m of sec.modules || []) {
+      if (m.uservisible === false) continue;
+      const desc = strip(m.description);
+      if (m.modname === "label") {
+        if (desc) lines.push(`🏷 ${desc.slice(0, 400)}`);
+        continue;
+      }
+      const dates = (m.dates || []).map((d) => `${strip(d.label).replace(/:$/, "")} ${when(d.timestamp)}`).join("; ");
+      const files = (m.contents || []).filter((f) => f.type === "file").length;
+      lines.push(`• ${fixName(m.name)} [${m.modname}]${dates ? ` · ${dates}` : ""}${files > 1 ? ` · ${files} archivos` : ""}${desc ? ` — ${desc.slice(0, 200)}` : ""}`);
+    }
+    if (lines.length) parts.push(`## ${strip(sec.name) || "General"}\n${lines.join("\n").slice(0, MAX_SECTION)}`);
+  }
+  const plans = [];
+  for (const sec of sections) for (const m of sec.modules || []) {
+    if (plans.length >= 2 || m.modname !== "resource" || m.uservisible === false) continue;
+    const file = (m.contents || []).find((f) => f.type === "file" && /pdf|word|officedocument|text/.test(f.mimetype || "pdf"));
+    if (file && (PLAN.test(m.name) || PLAN.test(file.filename))) {
+      const texto = await readPlan(env, m, file);
+      if (texto) plans.push({ documento: fixName(m.name), texto });
+    }
+  }
+  const avisos = ((await readJSON(env, K.avisos)) || [])
+    .filter((a) => a.course === shortName(course)).slice(0, 5)
+    .map((a) => `${a.at} · ${a.title}: ${a.body.slice(0, 400)}`);
+  let contenido = parts.join("\n\n");
+  if (contenido.length > MAX_OUTLINE) contenido = `${contenido.slice(0, MAX_OUTLINE)}\n…(recortado)`;
+  return {
+    asignatura: shortName(course), hoy: nowMadrid().date,
+    planificacion: plans, // el calendario de sesiones del profe, si lo hay: es lo más fiable para "qué toca el día X"
+    contenido: contenido || "(la asignatura no tiene contenido visible)", avisos_recientes: avisos,
+  };
 }

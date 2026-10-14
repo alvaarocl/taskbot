@@ -1,9 +1,13 @@
+import config from "../config.js";
 import { classify, transcribe, classifyAudioTranscript } from "./classify.js";
 import { loadSessions } from "./sync.js";
 import { replacedBy } from "./exams.js";
 import { cancellationEffect } from "./overrides.js";
-import { assistant, undoChange } from "./assistant.js";
+import { undoChange } from "./assistant.js";
+import { agent, undoBatch } from "./agent.js";
 import { socialCommand, socialCallback } from "./social.js";
+import { createRecoveryLink } from "./auth.js";
+import { buildWeekly } from "./weekly.js";
 import {
   agendaText, weekFreeText, scheduleTask, conflictsFor, nowMadrid, dayLabel,
   addDays, toMin, fromMin,
@@ -13,6 +17,11 @@ const API = "https://api.telegram.org";
 const MAX_TRANSCRIBE_SECONDS = 300;
 
 export async function tg(env, method, payload) {
+  // Solo en local (TG_DRY_RUN en .dev.vars): no habla con Telegram, lo escribe en el log.
+  if (env.TG_DRY_RUN) {
+    console.log(`[tg] ${method} ${JSON.stringify(payload)}`);
+    return { ok: true, result: { message_id: 1 } };
+  }
   const r = await fetch(`${API}/bot${env.TELEGRAM_TOKEN}/${method}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -72,6 +81,8 @@ async function handleMessage(msg, env) {
         { command: "semana", description: "Huecos libres de 7 días" },
         { command: "lista", description: "Tareas pendientes" },
         { command: "planificar", description: "Colocar tareas sin hueco" },
+        { command: "resumen", description: "Resumen de la semana" },
+        { command: "acceso", description: "Enlace para entrar al panel" },
         { command: "post", description: "Borrador de post para X" },
         { command: "radar", description: "Lo más caliente ahora para X" },
         { command: "cita", description: "Borrador para citar el N del radar" },
@@ -91,7 +102,9 @@ async function handleMessage(msg, env) {
         "Fotos, archivos y notas también se guardan.\n\n" +
         "Comandos:\n/hoy — tu agenda de hoy y huecos\n/manana — la de mañana\n" +
         "/semana — huecos libres de 7 días\n/lista — tareas pendientes\n" +
-        "/planificar — coloca las tareas que aún no tienen hueco\n\n" +
+        "/planificar — coloca las tareas que aún no tienen hueco\n" +
+        "/resumen — tu semana: commits, tareas, clases y borrador de post\n" +
+        "/acceso — enlace de un solo uso para entrar al panel sin passkey\n\n" +
         "𝕏 Para X (no publico nada: te aviso cuando hay tema y escribo borradores):\n" +
         "/post idea → dos versiones de un post\n/radar → lo más caliente ahora\n" +
         "/cita N → comentario para citar el N del radar\n/guardar N → para un hilo · /hilo → escribirlo",
@@ -114,6 +127,25 @@ async function handleMessage(msg, env) {
     await tg(env, "sendMessage", { chat_id: chatId, text: (await weekFreeText(env)).slice(0, 4000) });
     return;
   }
+  if (text === "/acceso") {
+    // Solo llega aquí el dueño (OWNER_CHAT_ID). Caduca a los 10 min y vale una vez.
+    const link = await createRecoveryLink(env);
+    await tg(env, "sendMessage", {
+      chat_id: chatId,
+      text: `🔑 Entra al panel con este enlace (vale una vez y caduca en 10 min):\n${link}\n\nDentro, añade una passkey para entrar con Face ID.\nSi no lo has pedido tú, ignóralo.`,
+      link_preview_options: { is_disabled: true },
+    });
+    return;
+  }
+  if (text === "/resumen") {
+    if (!config.weekly) {
+      await tg(env, "sendMessage", { chat_id: chatId, text: "El resumen semanal está apagado: añade el bloque `weekly` en config.js." });
+      return;
+    }
+    await tg(env, "sendChatAction", { chat_id: chatId, action: "typing" });
+    await buildWeekly(env);
+    return;
+  }
   if (text === "/planificar") {
     await planAll(env, chatId);
     return;
@@ -123,14 +155,14 @@ async function handleMessage(msg, env) {
   const file = pickFile(msg);
 
   // Texto: pregunta, cambio o algo que apuntar.
-  if (!file && text && !text.startsWith("/") && await assistant(env, chatId, text)) return;
+  if (!file && text && !text.startsWith("/") && await agent(env, chatId, text)) return;
   const caption = (msg.caption || msg.text || "").trim() || null;
 
   if (file?.isAudio && !caption && (file.duration ?? 0) <= MAX_TRANSCRIBE_SECONDS) {
     const preBuffer = await fetchTelegramFile(env, file.file_id);
     const transcript = preBuffer ? await transcribe(env, preBuffer) : null;
 
-    if (transcript && await assistant(env, chatId, transcript)) return;
+    if (transcript && await agent(env, chatId, `(audio transcrito) ${transcript}`)) return;
 
     if (transcript) {
       // Extrae 1 o varias tareas/notas reales del audio (ignora saludos y relleno).
@@ -156,7 +188,7 @@ async function handleMessage(msg, env) {
 }
 
 // Guarda el item y, si es evento o tarea, le da hora en la agenda. Devuelve { id, agenda }.
-async function insertItem(env, rawText, cls) {
+export async function insertItem(env, rawText, cls) {
   // En el calendario queda mejor el título limpio ("Reunión con Marco") que el mensaje entero.
   const text = ["evento", "tarea", "examen", "cancelacion"].includes(cls.kind) && cls.title ? cls.title : rawText;
   let start = null, end = null;
@@ -195,7 +227,7 @@ async function insertItem(env, rawText, cls) {
   return { id, agenda };
 }
 
-async function placeTask(env, item, after = null) {
+export async function placeTask(env, item, after = null) {
   const { slot, late } = await scheduleTask(env, item, after);
   if (!slot) return "\n🧠 No encuentro hueco libre en las próximas semanas";
   return `\n🧠 Te la pongo el ${dayLabel(slot.date)} ${slot.start}–${slot.end}` +
@@ -220,7 +252,7 @@ async function planAll(env, chatId) {
   }
   await tg(env, "sendMessage", {
     chat_id: chatId,
-    text: `🧠 He colocado ${results.length} tareas:\n\n${lines.join("\n")}\n\nUsa 🔁 en cada una o el dashboard para moverlas.`.slice(0, 4000),
+    text: `🧠 He colocado ${results.length} tareas:\n\n${lines.join("\n")}\n\nUsa 🔁 en cada una o el panel para moverlas.`.slice(0, 4000),
   });
 }
 
@@ -297,6 +329,14 @@ async function handleCallback(cb, env) {
   if (String(cb.from.id) !== String(env.OWNER_CHAT_ID)) return;
   const [action, idStr] = (cb.data || "").split(":");
   const id = Number(idStr);
+  if (action === "ub") {
+    // ↩️ Deshacer de todo lo que hizo el asistente con un mensaje.
+    const notice = await undoBatch(env, idStr);
+    await tg(env, "answerCallbackQuery", { callback_query_id: cb.id, text: notice });
+    await tg(env, "editMessageReplyMarkup", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [] } });
+    await tg(env, "sendMessage", { chat_id: cb.message.chat.id, text: notice });
+    return;
+  }
   if (action.startsWith("x")) return socialCallback(env, cb, action, id);
   let notice = "";
 
@@ -328,6 +368,12 @@ async function handleCallback(cb, env) {
       notice = "🔁 Movida";
       await tg(env, "sendMessage", { chat_id: cb.message.chat.id, text: `🔁 #${id} ${it.text}${line}` });
     }
+  } else if (action === "ds") {
+    // Borrar un evento de varios días entero.
+    const it = await env.DB.prepare("SELECT series FROM items WHERE id=?").bind(id).first();
+    if (it?.series) await env.DB.prepare("DELETE FROM items WHERE series=?").bind(it.series).run();
+    else await env.DB.prepare("DELETE FROM items WHERE id=?").bind(id).run();
+    notice = "🗑 Borrado (todos los días)";
   } else if (action === "del") {
     const it = await env.DB.prepare("SELECT kind FROM items WHERE id=?").bind(id).first();
     const atts = await env.DB.prepare("SELECT r2_key FROM attachments WHERE item_id=?").bind(id).all();
@@ -338,7 +384,7 @@ async function handleCallback(cb, env) {
   }
 
   await tg(env, "answerCallbackQuery", { callback_query_id: cb.id, text: notice });
-  if (action === "done" || action === "del" || action === "undo" || action === "keep") {
+  if (action === "done" || action === "del" || action === "ds" || action === "undo" || action === "keep") {
     await tg(env, "editMessageText", {
       chat_id: cb.message.chat.id,
       message_id: cb.message.message_id,

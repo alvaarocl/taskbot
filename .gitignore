@@ -5,10 +5,21 @@ dist/
 **/xcuserdata/
 **/DerivedData/
 
-# Notas personales (Obsidian), fuera del repo público
+# Notas personales, fuera del repo público
 Estado.md
 Sesiones/
 
 # Configuración personal (ver config.example.js y TaskbotEndpoint.swift.example)
 config.js
+wrangler.toml
 macos-widget/Shared/TaskbotEndpoint.swift
+
+# Tu marca (logo e iconos del panel). Sin esta carpeta se usan los de public/brand.default/.
+public/brand/
+
+# App de Mac: el proyecto de Xcode se genera con xcodegen; la firma personal va en Local.xcconfig
+macos-widget/Local.xcconfig
+macos-widget/TaskbotWidget.xcodeproj/
+
+# Notas privadas para Claude Code
+CLAUDE.local.md

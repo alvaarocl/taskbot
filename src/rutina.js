@@ -1,4 +1,4 @@
-// Rutina semanal fija (baloncesto) generada para toda la temporada, saltando festivos y vacaciones.
+// Rutina semanal fija (entrenos, trabajo…) generada para toda la temporada, saltando festivos y vacaciones.
 // Para cambiar un horario, edita `routine` en config.js y despliega: el calendario suscrito se actualiza solo.
 // Para quitar un día suelto ("este sábado no hay partido") no hace falta tocar esto: se dice por Telegram.
 

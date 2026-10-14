@@ -2,6 +2,9 @@ import config from "../config.js";
 import { typeLabel } from "./sync.js";
 import { fixedAgenda } from "./overrides.js";
 
+const UNI = config.uc3m?.label || "Uni";
+const CAMPUS = config.uc3m?.campus ? ` · ${config.uc3m.campus}` : "";
+
 // /calendar.ics (calendario "Taskbot"): eventos y bloques de tareas con su hora;
 // las tareas con fecha límite pero aún sin bloque salen como día completo.
 export async function handleCalendar(url, env) {
@@ -10,7 +13,7 @@ export async function handleCalendar(url, env) {
   }
 
   const { results } = await env.DB.prepare(
-    `SELECT id, kind, text, priority, due_date, start_at, end_at, location, url FROM items
+    `SELECT id, kind, text, priority, due_date, start_at, end_at, location, url, tbc FROM items
      WHERE status='pendiente' AND kind IN ('tarea','evento') AND (start_at IS NOT NULL OR due_date IS NOT NULL)
        AND NOT (start_at IS NULL AND (source LIKE 'ag:%' OR source LIKE 'crono:%'))
      ORDER BY COALESCE(start_at, due_date)`
@@ -18,7 +21,7 @@ export async function handleCalendar(url, env) {
 
   const events = results.map((it) => {
     const prefix = it.kind === "evento" ? "" : it.priority === "urgente" ? "🔥 " : it.priority === "algun_dia" ? "🌙 " : "🧠 ";
-    const base = { uid: `item-${it.id}`, summary: prefix + it.text, location: it.location };
+    const base = { uid: `item-${it.id}`, summary: prefix + it.text + (it.tbc ? " (horario por confirmar)" : ""), location: it.location };
     if (it.start_at) {
       return {
         ...base,
@@ -34,8 +37,8 @@ export async function handleCalendar(url, env) {
 }
 
 // /cal/clases.ics y /cal/rutina.ics: calendarios suscritos de solo lectura.
-// La API de la web (api.alvarocarpintero.com) los lee por service binding como https://internal/…:
-// ese host solo existe dentro de Cloudflare, así que no necesita el token.
+// Otro worker tuyo puede leerlos por service binding como https://internal/… (p. ej. una agenda de
+// reservas en tu web): ese host solo existe dentro de Cloudflare, así que no necesita el token.
 export async function handleScheduleFeed(url, env) {
   if (url.hostname !== "internal" && url.searchParams.get("t") !== env.CAL_TOKEN) {
     return new Response("forbidden", { status: 403 });
@@ -46,17 +49,17 @@ export async function handleScheduleFeed(url, env) {
   if (path === "/cal/clases.ics" || path === "/cal/practicas.ics") {
     const practicas = path === "/cal/practicas.ics";
     const { sessions } = await fixedAgenda(env);
-    name = practicas ? "UC3M · Prácticas" : "UC3M · Clases";
+    name = `${UNI} · ${practicas ? "Prácticas" : "Clases"}`;
     color = practicas ? "#FF9500" : null;
     events = sessions.filter((s) => (s.type === "PRÁCTICAS") === practicas).map((s) => ({
       uid: `uc3m-${s.key.normalize("NFD").replace(/\p{M}/gu, "").replace(/[^A-Za-z0-9]+/g, "-")}`,
       date: s.date, start: s.start, end: s.end,
       summary: (s.type === "RECUPERACIÓN" ? "⚠️ " : "") + `${s.subject} · ${typeLabel(s.type)}`,
-      location: s.room === "Virtual" ? "Virtual" : `Aula ${s.room} · UC3M Leganés`,
+      location: s.room === "Virtual" ? "Virtual" : `Aula ${s.room}${CAMPUS}`,
     }));
     if (practicas) events.push(...(await deadlineEvents(env)));
   } else if (path === "/cal/examenes.ics") {
-    name = "UC3M · Exámenes";
+    name = `${UNI} · Exámenes`;
     color = "#FF3B30";
     events = (await fixedAgenda(env)).examEvents;
   } else if (path === "/cal/rutina.ics") {

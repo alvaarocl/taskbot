@@ -1,19 +1,20 @@
 # CLAUDE.md — taskbot
 
-Bot de Telegram + dashboard PWA para captura de tareas sin fricción. Sustituye el chat de WhatsApp con uno mismo.
+Asistente personal en Telegram + panel web (PWA) sobre Cloudflare Workers, todo en la capa gratuita.
 
 ## Contexto rápido
-- **Stack:** Cloudflare Workers (JS vanilla, sin build), D1, KV, Workers AI (Llama 3.3 70B + Whisper, gratis), cron triggers. Dashboard: PWA vanilla en `public/`, sin frameworks ni dependencias.
-- **Decisión clave:** la captura se queda en Telegram (cero fricción, como WhatsApp); el dashboard es solo para visualizar/organizar. No añadir fricción a la captura jamás.
-- **Todo en capa gratuita.** No introducir dependencias de pago sin avisar.
+- **Stack:** Cloudflare Workers (JS vanilla, sin build ni dependencias npm), D1, KV, Workers AI (gpt-oss-120b para el asistente, Llama 3.3 70B para clasificar y redactar, Whisper para audios, toMarkdown para PDFs), cron triggers. Panel: PWA vanilla en `public/` (módulos ES, sin frameworks).
+- **Decisión clave:** la captura se queda en Telegram (cero fricción); el panel es para ver y organizar. No añadir fricción a la captura.
+- **Todo en capa gratuita.** No introducir dependencias de pago sin avisar. Groq (GROQ_API_KEY) es opcional y gratis.
+- **Módulos opcionales** (se apagan quitando su bloque de `config.js`): horario UC3M (`uc3m`), Moodle (`aulaGlobal`), resumen semanal (`weekly`), asistente de X (`social`), bandeja de la web (`panel.inbox`).
 
 ## Validación
 - No hay tests. Validar con:
   - `node --input-type=module --check < src/ARCHIVO.js` (sintaxis)
   - `npx esbuild src/index.js --bundle --format=esm --outfile=/dev/null` (imports)
-  - `npx wrangler deploy` despliega (requiere login del usuario)
-- Los secretos (TELEGRAM_TOKEN, TG_WEBHOOK_SECRET, DASH_TOKEN, CAL_TOKEN, OWNER_CHAT_ID, AULAGLOBAL_TOKEN) viven en Cloudflare, no en el repo.
-- Lo personal (matrícula, rutina, preferencias) va en `config.js`, y la URL del worker para la app de Mac en `macos-widget/Shared/TaskbotEndpoint.swift`. Ninguno de los dos se sube a git: el repo es público. Si cambias su forma, actualiza `config.example.js` / `TaskbotEndpoint.swift.example`.
+  - En local: `npm run dev` con `TG_DRY_RUN=1` en `.dev.vars` (el bot escribe en el log en vez de mandar a Telegram) y POST a `/webhook` con un update de prueba.
+  - `npx wrangler deploy` despliega (requiere login del usuario).
+- Los secretos viven en Cloudflare, nunca en el repo (lista en `.dev.vars.example`).
+- Lo personal no se sube a git: `config.js`, `wrangler.toml`, `public/brand/`, `macos-widget/Local.xcconfig` y `macos-widget/Shared/TaskbotEndpoint.swift`. Si cambias su forma, actualiza su `.example` (o `public/brand.default/`, `macos-widget/Config.xcconfig`).
 
-## Protocolo Obsidian
-Al terminar una sesión de trabajo: actualizar `Estado.md` y crear/actualizar `Sesiones/YYYY-MM-DD.md` con lo hecho y el próximo paso. Ambos están en .gitignore (notas personales, fuera del repo público).
+Si existe `CLAUDE.local.md` (no se sube a git), léelo también: son las notas de trabajo de quien lo mantiene.

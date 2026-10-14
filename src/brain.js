@@ -43,7 +43,7 @@ export async function loadBusy(env, from, to, skipId = null) {
   for (const x of fixed.examEvents) {
     const itemId = Number(x.uid.replace("exam-", ""));
     if (x.allDay || itemId === skipId) continue;
-    busy.push({ date: x.date, start: x.start, end: x.end, label: x.summary, where: x.location?.replace(/^Aula | · UC3M Leganés$/g, ""), fixed: true, itemId });
+    busy.push({ date: x.date, start: x.start, end: x.end, label: x.summary, where: x.location?.replace(/^Aula /, "").replace(/ · .*$/, ""), fixed: true, itemId });
   }
   for (const s of fixed.sessions) {
     busy.push({ date: s.date, start: s.start, end: s.end, label: `📚 ${s.subject} · ${typeLabel(s.type)}`, where: s.room });
@@ -61,6 +61,17 @@ export async function loadBusy(env, from, to, skipId = null) {
       date: r.date, start: fromMin(Math.max(0, toMin(r.start) - travel)),
       end: fromMin(Math.min(toMin(r.end) + PREFS.afterRoutine, 24 * 60 - 1)),
       label: r.summary, shown: r.start, shownEnd: r.end,
+    });
+  }
+  // Días completos (p. ej. una hackathon sin horario): ocupan la jornada entera.
+  const allDay = await env.DB.prepare(
+    `SELECT id, text, due_date, location, tbc FROM items
+     WHERE status='pendiente' AND kind='evento' AND all_day=1 AND start_at IS NULL AND due_date BETWEEN ? AND ?`
+  ).bind(from, to).all();
+  for (const it of allDay.results) {
+    busy.push({
+      date: it.due_date, start: "00:00", end: "23:59", allDay: true, tbc: !!it.tbc,
+      label: `📅 ${it.text}${it.tbc ? " (horario por confirmar)" : ""}`, where: it.location, itemId: it.id, fixed: true,
     });
   }
   const { results } = await env.DB.prepare(
@@ -136,16 +147,25 @@ export async function conflictsFor(env, date, start, end, skipId) {
   return busy.filter((b) => !b.hidden && (b.shown || b.start) < end && start < (b.shownEnd || b.end));
 }
 
-export async function agendaText(env, date) {
+// La agenda de un día, estructurada: bloques visibles y huecos libres (hoy, desde ahora). La usan /hoy y el panel.
+export async function agendaData(env, date) {
   const busy = await loadBusy(env, date, date);
   const now = nowMadrid();
-  const lines = busy.filter((b) => !b.hidden)
-    .map((b) => `${b.shown || b.start}–${b.shownEnd || b.end} ${b.label}${b.where ? ` (${b.where})` : ""}`);
+  const blocks = busy.filter((b) => !b.hidden).map((b) => ({
+    start: b.shown || b.start, end: b.shownEnd || b.end, label: b.label,
+    where: b.where || null, itemId: b.itemId ?? null, fixed: !!b.fixed, allDay: !!b.allDay,
+  }));
   const free = freeSlots(busy, date, date === now.date ? toMin(now.time) : 0)
-    .map(([s, e]) => `${fromMin(s)}–${fromMin(e)}`);
+    .map(([s, e]) => ({ start: fromMin(s), end: fromMin(e) }));
+  return { date, label: dayLabel(date), blocks, free };
+}
+
+export async function agendaText(env, date) {
+  const { blocks, free } = await agendaData(env, date);
+  const lines = blocks.map((b) => `${b.allDay ? "Todo el día" : `${b.start}–${b.end}`} ${b.label}${b.where ? ` (${b.where})` : ""}`);
   return `🗓 ${dayLabel(date)}\n` +
     (lines.length ? lines.join("\n") : "Nada fijo") +
-    `\n\n🟢 Libre: ${free.length ? free.join(", ") : "nada"}`;
+    `\n\n🟢 Libre: ${free.length ? free.map((f) => `${f.start}–${f.end}`).join(", ") : "nada"}`;
 }
 
 export async function weekFreeText(env) {

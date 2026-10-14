@@ -2,138 +2,192 @@
 
 > Resumen del proyecto en inglés: [README](../README.md). Montar tu copia: [DEPLOY.md](../DEPLOY.md).
 
-Sustituye el chat de WhatsApp contigo mismo: mandas texto, fotos, audios o archivos a un **bot de Telegram** (misma fricción cero que WhatsApp) y todo aparece organizado en un **dashboard PWA** instalable en el iPhone. La IA clasifica automáticamente cada mensaje y el bot te recuerda cada mañana lo que vence o lleva demasiado tiempo pendiente.
+Un asistente personal en **Telegram** (la misma fricción cero que escribirte a ti mismo por WhatsApp) y un **panel
+web** instalable en el iPhone. Le mandas cualquier cosa (una frase, un audio, un email pegado, la info de un evento)
+y lo entiende, lo apunta en tu agenda respetando tus pautas y te avisa de lo que choca. También responde preguntas
+con tus datos reales: tu horario, tus entregas o lo que dice el profe en Moodle que toca mañana.
 
-**Coste: 0€/mes**: todo corre en la capa gratuita de Cloudflare (Workers + D1 + KV + Workers AI).
+**Coste: 0 €/mes**: capa gratuita de Cloudflare (Workers, D1, KV, Workers AI) y, si quieres, Groq gratis.
 
 ## Cómo funciona
 
 ```
-Telegram (tú) ──▶ Worker /webhook ──▶ IA clasifica ──▶ D1 (tareas) + KV (archivos)
-                                                          ▲
-Dashboard PWA (iPhone/PC) ◀── Worker /api ────────────────┘
-Cron diario 7:45 ──▶ bot te escribe: vence hoy / atrasado / lleva 2 semanas
+Telegram (tú) ──▶ Worker /webhook ──▶ asistente (gpt-oss-120b + herramientas) ──▶ D1 + KV
+                                         │  agenda · huecos · choques · Moodle
+Panel PWA (passkey) ◀──── Worker /api ───┘
+Crons ──▶ Moodle cada hora · horario cada 3 h · buenos días 7:45 · resumen del domingo
 ```
 
-- **Texto** → la IA detecta: tarea/nota/material, prioridad (urgente/normal/algún día), categoría y fecha límite ("el viernes" → fecha real). Si la IA falla, se guarda como tarea normal — nunca se pierde nada.
-- **Fotos/audios/archivos** → se guardan en KV y salen en la pestaña Material (o asociados a la tarea si llevan caption).
-- El bot confirma cada captura con botones: ✅ Hecha · 🔥 Urgente · 🌙 Algún día · 🗑 Borrar.
-- Comandos: `/hoy` y `/manana` (agenda con huecos libres), `/semana` (huecos de 7 días), `/lista` (pendientes), `/planificar` (coloca las tareas sin hueco), `/ayuda`.
+## El asistente
 
-## Asistente
+Cada texto o audio lo lee un modelo con herramientas (`src/agent.js`). Tiene delante el calendario de las dos
+próximas semanas ya resuelto y todo lo que tienes guardado, y decide qué hacer:
 
-Cada texto o audio pasa por `src/assistant.js`, que decide (Workers AI, Llama 3.3 70B):
-- **pregunta** → responde con la agenda real del rango de días que haga falta, exámenes, tareas, avisos y notas de Aula Global. Recuerda los últimos mensajes (KV `chat:history`, 3 h) para seguir la conversación ("¿y el viernes?").
-- **editar** → mueve, renombra o cambia la fecha límite de una tarea, evento o examen, con botón ↩️ Deshacer (estado anterior en KV `undo:<id>`, 2 días). Mover un examen devuelve la clase a ese día.
-- **borrar** → pide confirmación. **hecho** → marca hecho (con ↩️).
-- **apuntar** → el flujo de siempre (`classify` → evento/tarea/examen/cancelación).
-Si algo falla, el bot lo dice en vez de quedarse callado.
+| Le mandas | Hace |
+|---|---|
+| "Reunión con Ana el jueves a las 17:30" | 📅 evento con alarma; avisa si choca con algo |
+| "Tengo que hacer la práctica de SO antes del viernes, me llevará 3 horas" | 📌 tarea con un bloque de 3 h en un hueco libre antes de la fecha |
+| La info de una hackathon: "del 8 al 12 de noviembre, horarios por confirmar, entrega el 11 a las 23:59" | 📅 cinco días completos *horario por confirmar*, la entrega como fecha límite (sin reservarle tiempo) y aviso de lo que choca (un examen, clases). Tres días antes te pregunta el horario |
+| "El primer día de 17 a 22, los del medio de 9 a 21 y el último hasta las 14" | 🕐 pone esas horas a cada día del evento |
+| Un email reenviado o pegado | 📥 saca todas las reuniones y tareas que haya |
+| "¿Qué vamos a hacer mañana en Ingeniería del Software?" | 📚 mira tu horario y la planificación de la asignatura en Moodle (lee el PDF del calendario del profe) y te dice el tema de la sesión y si hay ejercicio en clase |
+| "¿Qué tengo el viernes?" · "¿Tengo hueco el jueves por la tarde?" | 💬 responde con tu agenda real, horas exactas |
+| "Parcial de Cálculo el 26 de octubre a las 10:45" | 📝 examen; en el calendario sustituye a la clase de esa asignatura |
+| "Este sábado no hay partido" · "no hay clase de IA el martes" | ❌ quita ese partido, entreno o clase |
+| "Mueve la reunión con Ana a las 18" · "ya entregué la práctica" · "borra la cena del jueves" | ✏️ cambia, marca hecho o pide confirmar el borrado con un botón |
+| "Apúntame la cena con mis padres" | ❓ te pregunta el día y la hora en vez de inventárselos |
 
-## Asistente de X
+Cada mensaje acaba con un botón **↩️ Deshacer** que revierte todo lo que hizo ese mensaje (2 días). Recuerda la
+conversación de las últimas 24 h, así que entiende "ponlo a las 18" o "¿y el lunes?".
 
-No publica nada ni va por horarios: te avisa cuando hay algo que merece un post y te escribe borradores. Código en `src/social.js`; fuentes, cadencia y "voz" en `config.js` (`social`).
+**Modelo:** gpt-oss-120b (abierto, con razonamiento y herramientas). Primero en Groq si hay `GROQ_API_KEY`
+(rápido y sin gastar cuota de Cloudflare); si no, o si falla, el mismo modelo en Workers AI (unas 370 neuronas por
+mensaje de las 10.000 gratis al día). Si los dos fallan, el mensaje se guarda como tarea normal y te lo dice: nunca
+se pierde nada.
 
-- **Cada hora lee** las fuentes (blogs oficiales, blogs que sigues, Hacker News, GitHub Trending, Product Hunt) y les pone **temperatura**: puntos de HN por hora, estrellas de hoy, lanzamiento oficial reciente y, sobre todo, **el mismo tema en varias fuentes a la vez** (señal de que está pegando).
-- **Noticias al momento** (fuentes con `news`: OpenAI, Anthropic, DeepMind, Gemini, Claude Code, Cursor, GitHub, Qwen, Apple Developer, Rust): la IA descarta lo menor (clientes, alianzas, versiones con solo arreglos) y lo demás llega en menos de una hora como "🗞 Anthropic ha publicado…", sin esperar a la cadencia. Lo de la noche llega junto a las 9 ("Mientras dormías").
-- **La IA mira lo más caliente** y decide si algo merece post ahora, por qué y con qué ángulo.
-- **Cadencia** (`social.cadence`): un aviso cada 20–44 h, máximo 2 al día, nada entre las 23 y las 9. Antes de 20 h solo si es algo gordo; pasadas 44 h baja el listón.
-- El aviso trae ✍️ Borrador (dos versiones para citar), ⭐ Guardar, ✅ Publicado y ⏭ Paso.
-- **Eventos tech de Madrid** (Luma y Meetup, filtrados por la IA): se miran una vez al día y solo avisa de los nuevos; ➕ los mete en el calendario y al acabar pregunta si da para post.
+**Fotos y archivos** se guardan (KV) y salen en el panel; con pie de foto, como parte de esa tarea o nota.
 
-Comandos: `/post idea` (dos versiones; vale como pie de foto), `/radar` (lo más caliente ahora), `/cita N` y `/guardar N` sobre el radar, `/hilo` (hilo con lo guardado).
+**Comandos:** `/hoy` y `/manana` (agenda con huecos), `/semana` (huecos de 7 días), `/lista` (pendientes),
+`/planificar` (coloca las tareas sin hueco), `/resumen` (resumen de la semana), `/acceso` (enlace para entrar al
+panel), `/ayuda`.
 
 ## Agenda: el "cerebro"
 
-taskbot conoce todo el horario (clases UC3M + rutina + eventos + exámenes) y coloca cada cosa:
+taskbot junta tu horario fijo (clases, rutina semanal de `config.js`), exámenes, eventos y bloques de tareas, y
+coloca cada tarea en el primer hueco libre antes de su fecha límite respetando tus pautas (`config.prefs`): horas
+en las que se puede planificar, comida, desplazamientos antes de clase o de entrenar y huecos mínimos.
 
-| Mandas por Telegram | Pasa |
-|---|---|
-| "Reunión con Marco el jueves a las 17:30" | 📅 evento con hora y alarma; avisa si choca con algo |
-| "Hacer la práctica de SO antes del viernes" | 📌 tarea; la IA estima la duración y la pone en un hueco libre antes de la fecha (🔁 para moverla) |
-| "Parcial de Cálculo el 26 de octubre a las 10:45" | 📝 examen; en el calendario sustituye a la clase de esa asignatura |
-| "Este sábado no hay partido" / "no hay clase de IA el martes" | ❌ quita ese partido, entreno o clase (↩️ Deshacer) |
-| "Partido el sábado 17 a las 11 en Illescas" | sustituye al bloque provisional de partidos de ese sábado |
+- **Exámenes y cancelaciones** van por encima del horario fijo: deshacer uno o mover un examen devuelve la clase.
+- **Eventos de varios días** se guardan como un día por fila, unidos en una serie. Los días completos sin
+  horario ocupan la jornada: ese día no se te colocan tareas.
+- Si el horario de la uni cambia, las tareas que ahora chocan se recolocan.
 
-Aula Global: **cada hora** entregas y cuestionarios pendientes → tareas con hueco, entregado → hecha, cambio de fecha → aviso, recordatorios 24 h y 3 h antes, avisos y foros de los profesores → Telegram; **cada 3 h** material nuevo y notas publicadas → aviso. Necesita el secreto `AULAGLOBAL_TOKEN` (token de la app móvil de Moodle); sin él, esta parte se desactiva.
+## Moodle (opcional)
 
-Crons (la cuenta gratuita permite 5 en total entre todos los workers; aquí 2): `15 * * * *` Aula Global · `45 * * * *` horario UC3M (hora UTC % 3 = 0) o material y notas (% 3 = 1), y a las 7:45 de Madrid los buenos días.
+Con el secreto `AULAGLOBAL_TOKEN` (cómo sacarlo en [DEPLOY.md](../DEPLOY.md)) y `aulaGlobal` en `config.js`. Solo
+lee: nunca entrega ni publica nada.
 
-Cada 3 h (minuto 45) se relee la web de horarios de la UC3M (avisa por Telegram de cambios de aula, sesiones nuevas o quitadas) y se recolocan las tareas que se pasaron o que ahora chocan.
+- **Cada hora:** entregas y cuestionarios pendientes → tareas con hueco; entregado → hecha; cambio de fecha → aviso;
+  recordatorios 24 h y 3 h antes; avisos y foros de los profesores → Telegram.
+- **Cada 3 h:** material nuevo y notas publicadas → aviso.
+- **Bajo demanda:** el asistente lee el contenido de una asignatura (semanas, actividades con fechas, instrucciones,
+  avisos) y sus documentos de planificación en PDF (calendario de sesiones, cronograma), que se convierten a texto
+  con Workers AI y se guardan hasta que el profe los cambie.
 
-### Calendarios suscritos (Apple Calendar, solo lectura)
+## Horario de la UC3M (opcional)
+
+Con `uc3m` en `config.js`: cada 3 h relee la web pública de horarios, avisa de cambios de aula y de sesiones
+nuevas o quitadas, y alimenta los calendarios de clases, prácticas y exámenes. Si no estudias en la UC3M, pon
+`uc3m: null` y mete tus clases como rutina (`config.routine`) o como eventos.
+
+## Calendarios suscritos (solo lectura)
 
 Todos con el mismo `CAL_TOKEN` (`?t=...`):
 
 | URL | Calendario |
 |---|---|
-| `/cal/clases.ics` | **UC3M · Clases**: clases de teoría y recuperaciones |
-| `/cal/practicas.ics` | **UC3M · Prácticas** (naranja): prácticas/laboratorios + fechas límite ⏰ de Aula Global |
-| `/cal/examenes.ics` | **UC3M · Exámenes** (rojo): parciales, controles, EC y finales |
-| `/cal/rutina.ics` | **Rutina**: la rutina semanal de `config.js`, sin festivos ni vacaciones |
 | `/calendar.ics` | **Taskbot**: eventos y bloques de tareas |
+| `/cal/rutina.ics` | **Rutina**: tu semana fija, sin festivos ni vacaciones |
+| `/cal/clases.ics` | **Clases** (módulo uc3m) |
+| `/cal/practicas.ics` | **Prácticas** (naranja): laboratorios + fechas límite ⏰ de Moodle |
+| `/cal/examenes.ics` | **Exámenes** (rojo) |
 
-Para que salgan en el iPhone: Calendario del Mac → Archivo → Nueva suscripción → ubicación **iCloud**, actualización **cada hora**. Los calendarios suscritos no se pueden editar desde Apple: los cambios se hacen por Telegram.
+En el iPhone: Ajustes → Calendario → Cuentas → Añadir cuenta → Otra → Calendario suscrito (o, desde el Mac,
+Archivo → Nueva suscripción en iCloud, actualización cada hora). Los cambios se hacen por Telegram.
 
-### Configuración
+## Buenos días
 
-Todo lo personal vive en `config.js` (no se sube a git; plantilla en `config.example.js`):
-- `uc3m`: asignaturas y grupos (cambiar si cambia la matrícula).
-- `routine`: rutina semanal, festivos y vacaciones.
-- `prefs`: ventana de planificación, comida, viajes.
-- `aulaGlobal.year` y `calendar.uidDomain`.
+Cada día a las **7:45** (hora de Madrid, todo el año) el bot te manda la agenda del día con huecos libres, las
+tareas atrasadas, las que vencen hoy y mañana, y las que llevan más de 2 semanas sin fecha (máx. 5, una vez por
+semana). Si un evento sin horario empieza en 3 días o menos, te pregunta el horario.
 
-## Despliegue
+Para cambiar la hora: `MORNING_HOUR_MADRID` en `src/index.js`.
 
-Paso a paso en [DEPLOY.md](../DEPLOY.md) (~15 min, sin tarjeta).
+## Panel
 
-## Recordatorios
+Tres pestañas (las de módulos apagados no salen):
 
-Cada día a las **7:45** (hora de Madrid, todo el año) el bot te manda:
-- 🗓 La agenda del día (clases con aula, entrenos, eventos, bloques de tareas) y los huecos libres.
-- ⚠️ Tareas atrasadas, 📅 las que vencen hoy y 🔜 mañana.
-- 🕸 Tareas sin fecha con más de 2 semanas pendientes (máx. 5, se repite semanalmente).
+- **Hoy:** agenda con aulas y huecos libres, entregas de Moodle de los próximos 14 días, tareas con fecha de los
+  próximos 7 días y la lista completa (alta rápida, búsqueda, filtros y edición). Las tareas van **por bloques**:
+  primero la uni dividida por asignatura, luego cada categoría. Los bloques se pliegan y el panel lo recuerda.
+- **Reuniones** (`panel.inbox`): mensajes y reservas que empuja otro worker tuyo (ver `src/inbox.js`).
+- **Semana** (`weekly`): el resumen del domingo y su histórico, con un botón para copiar el borrador.
 
-Para cambiar la hora: edita `crons` en `wrangler.toml` (está en UTC) y redespliega.
+**Acceso:** passkey / Face ID. Sin passkey en el dispositivo: `/acceso` en Telegram manda un enlace de un solo uso
+(10 min). Solo se pueden añadir passkeys en los 10 minutos siguientes a entrar; en ⋯ → Ajustes se ven y se quitan.
+
+**Tu logo:** pon tus archivos en `public/brand/` (no se sube a git); si no, salen los de `public/brand.default/`.
+Colores y tipografía en `public/style.css`.
+
+## Resumen semanal (opcional)
+
+El domingo a las **20:45** o con `/resumen`: tus commits de la semana y los de tus organizaciones
+(`config.weekly`), las tareas cerradas, las clases por asignatura y un borrador de post *build in public*. Se
+guarda (pestaña Semana) y llega por Telegram. Con `GITHUB_TOKEN` (fine-grained, solo lectura) entran los repos
+privados.
+
+## Asistente de X (opcional)
+
+No publica nada ni va por horarios: te avisa cuando hay algo que merece un post y te escribe borradores. Código en
+`src/social.js`; fuentes, cadencia y tu voz en `config.social`.
+
+- **Cada hora lee** las fuentes (blogs oficiales, blogs que sigues, Hacker News, GitHub Trending, Product Hunt) y
+  les pone **temperatura**: puntos de HN por hora, estrellas de hoy, lanzamiento oficial reciente y, sobre todo,
+  **el mismo tema en varias fuentes a la vez**.
+- **Noticias al momento** de las fuentes con `news`: la IA descarta lo menor y lo demás llega en menos de una hora.
+  Lo de la noche llega junto a las 9.
+- **Cadencia** (`social.cadence`): un aviso cada 20–44 h, máximo 2 al día, nada de noche.
+- El aviso trae ✍️ Borrador (dos versiones), ⭐ Guardar, ✅ Publicado y ⏭ Paso.
+- **Eventos tech de tu ciudad** (Luma y Meetup, `social.events`): solo los nuevos; ➕ los mete en el calendario.
+
+Comandos: `/post idea`, `/radar`, `/cita N`, `/guardar N`, `/hilo`.
+
+## Crons
+
+La cuenta gratuita permite 5 en total entre todos tus workers; taskbot usa 2. `15 * * * *`: Moodle.
+`45 * * * *`: horario (hora UTC % 3 = 0) o material y notas (% 3 = 1), asistente de X y, en hora de Madrid, buenos
+días a las 7:45, limpieza a las 4:45 y resumen el domingo a las 20:45.
 
 ## Estructura
 
 ```
-src/index.js      router del Worker, crons y archivos (KV)
+src/index.js      router del Worker, crons, archivos y logo
 src/telegram.js   webhook: mensajes, adjuntos, botones, comandos
-src/classify.js   clasificación con Workers AI (tarea/evento/examen/cancelación, duración)
-src/api.js        API REST para el dashboard
-src/reminders.js  cron diario: agenda + recordatorios; avisos de tareas recolocadas
+src/agent.js      el asistente: prompt, herramientas y bucle; ↩️ Deshacer conjunto
+src/llm.js        gpt-oss-120b en Groq o Workers AI
+src/assistant.js  piezas del asistente: lo guardado legible, calendario resuelto, cambios con deshacer
+src/classify.js   clasificación de respaldo (Llama 3.3) y transcripción de audios (Whisper)
 src/brain.js      agenda, huecos libres, colocar y recolocar tareas
-src/uc3m.js       lector de la web de horarios UC3M
-src/sync.js       cron cada 3 h: horario UC3M en KV + avisos de cambios
-src/rutina.js     rutina semanal (baloncesto) y calendario escolar
+src/reminders.js  buenos días y pregunta del horario pendiente
+src/aulaglobal.js Moodle: entregas, recordatorios, avisos, material, notas y contenido de asignaturas
+src/uc3m.js       lector de la web de horarios de la UC3M
+src/sync.js       horario en KV y avisos de cambios
+src/rutina.js     rutina semanal y calendario escolar
 src/exams.js      exámenes que sustituyen a la clase
 src/overrides.js  lo fijo ajustado con exámenes y cancelaciones
 src/calendar.js   feeds .ics
-src/aulaglobal.js Aula Global: entregas, recordatorios, avisos, material y notas
-src/assistant.js  asistente: preguntas, cambios y deshacer
-public/           dashboard PWA (vanilla JS, sin dependencias)
-schema.sql        esquema D1
+src/api.js        API del panel (cookie de sesión o Bearer DASH_TOKEN)
+src/auth.js       passkeys (WebAuthn a mano), sesiones y enlaces de /acceso
+src/subjects.js   área y asignatura de cada tarea (bloques del panel)
+src/inbox.js      bandeja de tu web (opcional)
+src/weekly.js     resumen semanal
+src/social.js     asistente de X
+public/           panel PWA
+scripts/          moodle-token.mjs: saca el token de Moodle
+schema.sql        esquema D1 (migrations/ para bases ya creadas)
 ```
 
 ## Límites de la capa gratuita (de sobra para uso personal)
 
-| Recurso | Gratis | Tu uso estimado |
+| Recurso | Gratis | Uso típico |
 |---|---|---|
-| Workers | 100.000 req/día | < 500 |
-| D1 | 5 GB, 5M lecturas/día | irrisorio |
-| KV | 1 GB | años de fotos |
-| Workers AI | ~10.000 neuronas/día | ~100 clasificaciones/día posibles |
+| Workers | 100.000 peticiones/día | < 1.000 |
+| D1 | 5 GB, 5 M lecturas/día | irrisorio |
+| KV | 1 GB, 1.000 escrituras/día | años de fotos |
+| Workers AI | 10.000 neuronas/día | ~20 mensajes del asistente/día sin Groq; con Groq, sin límite práctico |
 
-## Más funciones
+## App y widget de macOS
 
-- **Transcripción de audios con Whisper** — notas de voz cortas (≤5 min) se transcriben (`@cf/openai/whisper-large-v3-turbo`, gratis en Workers AI) y se clasifican igual que un mensaje de texto. Si falla, cae a "material" como antes.
-- **Búsqueda en el dashboard** — campo de búsqueda bajo el quick-add, filtra todo (pendientes y hechas, cualquier tipo) por texto y categoría.
-- **Pestaña de categorías** — quinta tab "🏷 Cats", agrupa lo pendiente por categoría con contadores y grupos colapsables.
-- Compartir directo desde iOS al bot — ya funciona sin cambios: Compartir → Telegram → tu bot.
-
-## Widget para el escritorio del Mac
-
-Hay una app auxiliar nativa con widget de macOS en [`macos-widget/`](../macos-widget/README.md). Copia `Shared/TaskbotEndpoint.swift.example` a `Shared/TaskbotEndpoint.swift` con la URL de tu worker, abre el proyecto con Xcode, configura la firma del grupo de aplicaciones, introduce tu `DASH_TOKEN` y añade el widget desde el Centro de notificaciones. Ofrece tamaños pequeño, mediano y grande, muestra tareas pendientes y abre el dashboard al pulsarlo. El sistema de widgets decide el intervalo real de actualización.
-
-Desde el widget de macOS puedes pulsar el círculo de una tarea para marcarla como hecha; se quita de la lista pendiente al actualizar. El widget tiene espacio fijo (hasta 7 tareas en grande), así que púlsalo fuera de los botones para abrir el dashboard y desplazarte por todas.
+App nativa con widget en [`macos-widget/`](../macos-widget/README.md): tareas pendientes en el escritorio, marcar
+como hecha desde el widget, nota en Apple Notes y sincronización en las dos direcciones con Recordatorios (y así
+con el iPhone). Entra con `DASH_TOKEN`.

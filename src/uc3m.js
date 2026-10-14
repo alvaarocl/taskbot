@@ -69,13 +69,14 @@ function toDate(s, year) {
 }
 
 export async function fetchSchedule(cfg = UC3M_CONFIG) {
+  if (!cfg) return [];
   const all = [];
   for (const p of cfg.pages) {
     const res = await fetch(pageUrl(cfg, p), { headers: { "user-agent": "taskbot-calendar" } });
     if (!res.ok) throw new Error(`horarios UC3M ${res.status} (${p.curso}º grp ${p.grupo})`);
     all.push(...parseTimetable(await res.text(), cfg.year));
   }
-  for (const [name, dates] of cfg.fixed) {
+  for (const [name, dates] of cfg.fixed || []) {
     for (const date of dates) {
       all.push({ key: `fixed|${name}|${date}`, code: "fixed", subject: name, group: "", type: "TEORÍA",
         date, start: "14:00", end: "15:30", room: "Virtual" });

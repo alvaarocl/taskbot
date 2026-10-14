@@ -1,13 +1,30 @@
+import config from "../config.js";
 import { classify } from "./classify.js";
+import { requireAuth } from "./auth.js";
+import { agendaData, nowMadrid, addDays } from "./brain.js";
+import { listInbox, markInbox } from "./inbox.js";
+import { listWeekly } from "./weekly.js";
+import { withGroup, SUBJECT_ORDER } from "./subjects.js";
 
 const EDITABLE = ["kind", "status", "text", "category", "priority", "due_date", "start_at", "end_at", "duration_min", "location"];
 
 export async function handleApi(request, env) {
   const url = new URL(request.url);
-  const token = (request.headers.get("authorization") || "").replace("Bearer ", "") || url.searchParams.get("t");
-  if (token !== env.DASH_TOKEN) return json({ error: "unauthorized" }, 401);
+  // Cookie del panel o `Bearer DASH_TOKEN` (app de Mac).
+  if (!await requireAuth(request, env)) return json({ error: "unauthorized" }, 401);
 
-  const parts = url.pathname.split("/").filter(Boolean); // ["api", "items", id?]
+  const parts = url.pathname.split("/").filter(Boolean); // ["api", recurso, id?]
+  try {
+    if (request.method === "GET" && parts[1] === "today") return json(await today(env));
+    if (parts[1] === "inbox") {
+      if (request.method === "GET") return json({ inbox: await listInbox(env) });
+      if (request.method === "PATCH" && parts[2]) return json(await markInbox(env, decodeURIComponent(parts[2]), await request.json()));
+    }
+    if (request.method === "GET" && parts[1] === "weekly") return json({ weeks: await listWeekly(env) });
+  } catch (e) {
+    return json({ error: String(e) }, 500);
+  }
+
   if (parts[1] !== "items") return json({ error: "not found" }, 404);
   const id = parts[2] ? Number(parts[2]) : null;
 
@@ -20,6 +37,39 @@ export async function handleApi(request, env) {
     return json({ error: String(e) }, 500);
   }
   return json({ error: "not found" }, 404);
+}
+
+// Pestaña "Hoy": agenda y huecos de hoy, tareas (atrasadas / hoy / próximos 7 días) y entregas de Aula Global.
+async function today(env) {
+  const now = nowMadrid();
+  const week = addDays(now.date, 7);
+  const [agenda, tasks, aula] = await Promise.all([
+    agendaData(env, now.date),
+    env.DB.prepare(
+      `SELECT id, text, category, priority, due_date, due_at, start_at, end_at, source, url FROM items
+       WHERE status='pendiente' AND kind='tarea' AND due_date IS NOT NULL AND due_date <= ?
+       ORDER BY due_date, CASE priority WHEN 'urgente' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END`
+    ).bind(week).all(),
+    env.DB.prepare(
+      `SELECT id, text, category, due_at, url, start_at, source FROM items
+       WHERE status='pendiente' AND (source LIKE 'ag:%' OR source LIKE 'crono:%') AND due_at IS NOT NULL AND due_at BETWEEN ? AND ?
+       ORDER BY due_at`
+    ).bind(`${now.date}T${now.time}`, `${addDays(now.date, 14)}T23:59`).all(),
+  ]);
+  const t = tasks.results.map(withGroup);
+  return {
+    now,
+    agenda,
+    tasks: {
+      overdue: t.filter((i) => i.due_date < now.date),
+      today: t.filter((i) => i.due_date === now.date),
+      upcoming: t.filter((i) => i.due_date > now.date),
+    },
+    aula: aula.results.map(withGroup),
+    subjects: SUBJECT_ORDER,
+    // Qué módulos están encendidos: el panel esconde lo que no se usa.
+    features: { inbox: !!config.panel?.inbox, weekly: !!config.weekly, moodle: config.aulaGlobal?.name || null },
+  };
 }
 
 async function listItems(url, env) {
@@ -40,7 +90,7 @@ async function listItems(url, env) {
     for (const a of atts.results) (byItem[a.item_id] ||= []).push(a);
     for (const i of results) i.attachments = byItem[i.id] || [];
   }
-  return json({ items: results });
+  return json({ items: results.map(withGroup), subjects: SUBJECT_ORDER });
 }
 
 async function createItem(request, env) {
@@ -48,7 +98,7 @@ async function createItem(request, env) {
   const text = (body.text || "").trim();
   if (!text) return json({ error: "text required" }, 400);
 
-  // Si el dashboard no especifica clasificación, la hace la IA
+  // Si el panel no especifica clasificación, la hace la IA
   const cls = body.kind ? {
     kind: body.kind,
     priority: body.priority || "normal",
@@ -62,7 +112,7 @@ async function createItem(request, env) {
 
   const item = await env.DB.prepare("SELECT * FROM items WHERE id=?").bind(res.meta.last_row_id).first();
   item.attachments = [];
-  return json({ item }, 201);
+  return json({ item: withGroup(item) }, 201);
 }
 
 async function patchItem(request, env, id) {
@@ -81,7 +131,7 @@ async function patchItem(request, env, id) {
   binds.push(id);
   await env.DB.prepare(`UPDATE items SET ${sets.join(", ")} WHERE id=?`).bind(...binds).run();
   const item = await env.DB.prepare("SELECT * FROM items WHERE id=?").bind(id).first();
-  return json({ item });
+  return json({ item: item && withGroup(item) });
 }
 
 async function deleteItem(env, id) {
@@ -95,6 +145,6 @@ async function deleteItem(env, id) {
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
 }

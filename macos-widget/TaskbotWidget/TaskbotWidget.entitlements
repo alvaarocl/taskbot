@@ -3,5 +3,5 @@
 <plist version="1.0"><dict>
   <key>com.apple.security.app-sandbox</key><true/>
   <key>com.apple.security.network.client</key><true/>
-  <key>com.apple.security.application-groups</key><array><string>group.com.alvarocarpintero.taskbot</string></array>
+  <key>com.apple.security.application-groups</key><array><string>group.$(TASKBOT_BUNDLE_PREFIX).taskbot</string></array>
 </dict></plist>

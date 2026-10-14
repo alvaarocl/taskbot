@@ -1,12 +1,14 @@
 name: TaskbotWidget
 options:
-  bundleIdPrefix: com.alvarocarpintero
   deploymentTarget:
     macOS: "14.0"
+# Prefijo del bundle id y equipo de firma: Config.xcconfig (+ Local.xcconfig, que no se sube a git).
+configFiles:
+  Debug: Config.xcconfig
+  Release: Config.xcconfig
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    DEVELOPMENT_TEAM: 8K958UG785
 targets:
   Taskbot:
     type: application
@@ -15,12 +17,13 @@ targets:
       - path: TaskbotApp
       - path: Shared/CompleteTaskIntent.swift
       - path: Shared/TaskbotEndpoint.swift
+      - path: Shared/AppGroup.swift
     dependencies:
       - target: TaskbotWidgetExtension
         embed: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.alvarocarpintero.taskbot
+        PRODUCT_BUNDLE_IDENTIFIER: $(TASKBOT_BUNDLE_PREFIX).taskbot
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Taskbot — Notas
         INFOPLIST_KEY_CFBundleVersion: "1"
@@ -41,6 +44,7 @@ targets:
       - path: TaskbotWidget
       - path: Shared/CompleteTaskIntent.swift
       - path: Shared/TaskbotEndpoint.swift
+      - path: Shared/AppGroup.swift
     info:
       path: TaskbotWidget/Info.plist
       properties:
@@ -48,7 +52,7 @@ targets:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.alvarocarpintero.taskbot.macoswidget
+        PRODUCT_BUNDLE_IDENTIFIER: $(TASKBOT_BUNDLE_PREFIX).taskbot.macoswidget
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_KEY_CFBundleDisplayName: Taskbot Widget
         CODE_SIGN_ENTITLEMENTS: TaskbotWidget/TaskbotWidget.entitlements

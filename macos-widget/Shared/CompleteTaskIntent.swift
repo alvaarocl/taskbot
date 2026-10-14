@@ -1,7 +1,6 @@
 import AppIntents
 import Foundation
 
-private let taskbotAppGroupID = "group.com.alvarocarpintero.taskbot"
 private let taskbotItemsURL = taskbotBaseURL + "/api/items/"
 
 struct CompleteTaskIntent: AppIntent {

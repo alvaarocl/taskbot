@@ -1,11 +1,23 @@
 // Configuración personal de taskbot.
-// Cópialo a config.js (que no se sube a git) y ajústalo a tu matrícula y tu semana:
+// Cópialo a config.js (que no se sube a git) y ajústalo a ti:
 //   cp config.example.js config.js
+// Cada bloque es un módulo. Los opcionales se apagan poniéndolos a null (o borrándolos).
 
 export default {
-  // Horario de la UC3M, leído de la web pública aplicaciones.uc3m.es/horarios-web.
-  // Los números de plan, centro y grupo salen de la URL de tu horario en esa web.
+  // Quién eres: lo usa el asistente de Telegram (src/agent.js) para entender lo que le mandas.
+  assistant: {
+    name: "Tu nombre",
+    about: "qué estudias o a qué te dedicas, dónde, y qué haces fuera (deporte, proyectos…) en una frase",
+    categories: ["uni", "trabajo", "deporte", "personal"], // cómo agrupas lo que apuntas (el panel lo divide así)
+    termStart: "2026-09-07", // lunes de la semana 1 del curso, para entender "la semana 6"; null si no aplica
+  },
+
+  // OPCIONAL, solo estudiantes de la UC3M: horario leído de la web pública aplicaciones.uc3m.es/horarios-web.
+  // Los números de plan, centro y grupo salen de la URL de tu horario en esa web. Si no es tu caso: uc3m: null.
+  // Las asignaturas (subjects) también sirven para agrupar tareas y entender "el parcial de SO".
   uc3m: {
+    label: "UC3M", // nombre de los calendarios: "UC3M · Clases", "UC3M · Exámenes"
+    campus: "UC3M Leganés", // se añade al aula en el calendario
     year: 2026, // curso 2026/2027
     plan: 570, // grado (570 = Ingeniería Informática)
     centro: 2, // 2 = EPS Leganés
@@ -53,12 +65,29 @@ export default {
     horizonDays: 14, // tareas sin fecha: dentro de las próximas 2 semanas
   },
 
+  // OPCIONAL: tu Moodle (en la UC3M se llama Aula Global). Necesita el secreto AULAGLOBAL_TOKEN (ver DEPLOY.md).
+  // Entregas → tareas, recordatorios, avisos de profesores, material, notas y "¿qué toca mañana en X?".
   aulaGlobal: {
-    year: "26/27", // solo se miran las asignaturas de este curso: "… 26/27-1C" / "… 26/27-2C"
+    name: "Aula Global", // cómo se llama tu Moodle en los mensajes
+    site: "https://aulaglobal.uc3m.es", // URL de tu Moodle
+    year: "26/27", // solo se miran las asignaturas cuyo nombre contiene esto ("… 26/27-1C"); "" = todas
   },
 
   calendar: {
     uidDomain: "taskbot.example.workers.dev", // dominio de tu worker; fíjalo una vez y no lo cambies
+  },
+
+  // Panel web (src/auth.js): su dominio es el RP ID de las passkeys. Fíjalo una vez; si cambia, hay que volver a registrarlas.
+  panel: {
+    origin: "https://panel.example.com",
+    inbox: false, // pestaña Reuniones: mensajes y reservas que empuja otro worker tuyo (ver src/inbox.js)
+  },
+
+  // Resumen semanal del domingo (src/weekly.js): commits tuyos y de la organización (secreto GITHUB_TOKEN, solo lectura).
+  weekly: {
+    github: "tu-usuario", // tu usuario de GitHub
+    orgs: ["tu-organizacion"], // organizaciones cuyos commits (de todo el equipo) entran en el resumen
+    maxRepos: 6, // repos con actividad que se miran por organización (cada uno es una petición)
   },
 
   // Asistente de X (src/social.js): avisa y escribe borradores; nunca publica.

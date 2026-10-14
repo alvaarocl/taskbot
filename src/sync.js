@@ -1,3 +1,4 @@
+import config from "../config.js";
 import { fetchSchedule } from "./uc3m.js";
 import { tg } from "./telegram.js";
 
@@ -10,12 +11,13 @@ export async function loadSessions(env) {
 
 // Cron: vuelve a leer la web de horarios y avisa por Telegram de lo que haya cambiado.
 export async function syncUc3m(env) {
+  if (!config.uc3m) return; // módulo apagado
   const next = await fetchSchedule();
   const prev = await loadSessions(env);
 
   // Si la web de la UC3M falla o devuelve media página, no machacamos el calendario bueno.
   if (next.length === 0 || (prev.length && next.length < prev.length * 0.6)) {
-    console.warn(`horarios UC3M sospechosos: ${next.length} sesiones (antes ${prev.length})`);
+    console.warn(`horarios ${config.uc3m.label || "uni"} sospechosos: ${next.length} sesiones (antes ${prev.length})`);
     return;
   }
 
@@ -54,7 +56,7 @@ export function formatChanges(changes) {
     return `${icon.nueva} ${when} · ${what} en ${s.room}`;
   });
   const more = changes.length > 25 ? `\n…y ${changes.length - 25} más` : "";
-  return `🎓 Cambios en tu horario UC3M:\n\n${lines.join("\n")}${more}`;
+  return `🎓 Cambios en tu horario de ${config.uc3m?.label || "la uni"}:\n\n${lines.join("\n")}${more}`;
 }
 
 export function typeLabel(t) {

@@ -1,0 +1,8 @@
+// Firma de la app de Mac. Para usar los tuyos, crea Local.xcconfig (no se sube a git) con:
+//   TASKBOT_BUNDLE_PREFIX = com.tunombre
+//   DEVELOPMENT_TEAM = TU_TEAM_ID
+// El grupo de apps queda como group.<prefijo>.taskbot (añádelo en Signing & Capabilities).
+TASKBOT_BUNDLE_PREFIX = com.example
+DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"

@@ -3,43 +3,89 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0d0f14" />
+  <meta name="theme-color" content="#0A0E24" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Taskbot</title>
+  <meta name="apple-mobile-web-app-title" content="taskbot" />
+  <title>taskbot</title>
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="/icon.svg" />
+  <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
+  <link rel="preload" href="/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/style.css" />
+  <script src="/motion.js"></script>
 </head>
 <body>
-  <div id="login" class="login hidden">
-    <h1>📥 Taskbot</h1>
-    <p>Introduce tu clave de acceso</p>
-    <input id="token-input" type="password" placeholder="DASH_TOKEN" autocomplete="current-password" />
-    <button id="login-btn">Entrar</button>
-    <p id="login-error" class="error hidden">Clave incorrecta</p>
-  </div>
+  <svg class="sprite" aria-hidden="true">
+    <defs><symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol></defs>
+  </svg>
 
-  <div id="app" class="hidden">
-    <header>
-      <form id="quick-add">
-        <input id="add-input" type="text" placeholder="＋ Añadir tarea o nota…" autocomplete="off" />
-      </form>
-      <input id="search-input" type="search" placeholder="🔍 Buscar…" autocomplete="off" />
+  <!-- Acceso -->
+  <section id="gate" class="gate" hidden>
+    <div class="gate__card">
+      <svg class="gate__mark" viewBox="0 0 176 97" aria-hidden="true"><use href="/brand/mark.svg#mark"/></svg>
+      <h1 class="gate__title"><span class="bar">taskbot</span></h1>
+      <p class="gate__lead" id="gate-lead">Tu agenda, tus tareas y tu semana.</p>
+
+      <div id="gate-login">
+        <button class="btn btn--wide" id="login-btn" type="button">Entrar con Face ID</button>
+        <p class="gate__hint">¿Sin passkey en este dispositivo? Escribe <code>/acceso</code> al bot y abre el enlace.</p>
+      </div>
+
+      <div id="gate-enroll" hidden>
+        <p class="gate__hint">Dentro. Añade una passkey para entrar con Face ID a partir de ahora.</p>
+        <label class="field">
+          <span class="label">Nombre del dispositivo</span>
+          <input id="enroll-name" type="text" maxlength="60" autocomplete="off" />
+        </label>
+        <button class="btn btn--wide" id="enroll-btn" type="button">Añadir passkey</button>
+        <button class="btn btn--ghost btn--wide" id="enroll-skip" type="button">Ahora no</button>
+      </div>
+
+      <p class="gate__error" id="gate-error" role="alert" hidden></p>
+    </div>
+  </section>
+
+  <!-- Panel -->
+  <div id="app" class="app" hidden>
+    <header class="top">
+      <div class="top__in">
+        <a class="brand" href="/" aria-label="taskbot, inicio">
+          <svg viewBox="0 0 176 97" aria-hidden="true"><use href="/brand/mark.svg#mark"/></svg>
+          <span class="brand__name">taskbot</span>
+        </a>
+        <nav class="tabs" role="tablist" aria-label="Secciones">
+          <button class="tab" role="tab" data-view="hoy" aria-selected="true">Hoy</button>
+          <button class="tab" role="tab" data-view="reuniones" aria-selected="false">Reuniones<span class="tab__dot" id="inbox-dot" hidden></span></button>
+          <button class="tab" role="tab" data-view="semana" aria-selected="false">Semana</button>
+        </nav>
+        <button class="top__more" id="settings-btn" type="button" aria-label="Ajustes" aria-haspopup="dialog">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
     </header>
 
-    <main id="list"></main>
-
-    <nav class="tabs">
-      <button class="tab active" data-tab="tareas">📌 Tareas</button>
-      <button class="tab" data-tab="notas">📝 Notas</button>
-      <button class="tab" data-tab="material">📎 Material</button>
-      <button class="tab" data-tab="hechas">✅ Hechas</button>
-      <button class="tab" data-tab="categorias">🏷 Cats</button>
-    </nav>
+    <main id="view" class="view" tabindex="-1"></main>
   </div>
 
-  <script src="/app.js"></script>
+  <!-- Ajustes: passkeys y salir -->
+  <dialog id="settings" class="sheet" aria-labelledby="settings-title">
+    <div class="sheet__head">
+      <h2 id="settings-title" class="label">Ajustes</h2>
+      <button class="sheet__close" type="button" data-close aria-label="Cerrar">×</button>
+    </div>
+    <h3 class="sheet__h">Passkeys</h3>
+    <ul id="cred-list" class="creds"></ul>
+    <button class="btn btn--ghost btn--wide" id="add-passkey" type="button">Añadir passkey en este dispositivo</button>
+    <p class="sheet__note" id="settings-note" hidden></p>
+    <button class="btn btn--ghost btn--wide btn--danger" id="logout-btn" type="button">Cerrar sesión</button>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

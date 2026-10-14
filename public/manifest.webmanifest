@@ -1,11 +1,16 @@
 {
-  "name": "Taskbot",
-  "short_name": "Taskbot",
+  "name": "taskbot",
+  "short_name": "taskbot",
+  "description": "Agenda, tareas, reuniones y resumen semanal",
+  "lang": "es",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0d0f14",
-  "theme_color": "#0d0f14",
+  "background_color": "#0A0E24",
+  "theme_color": "#0A0E24",
   "icons": [
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    { "src": "/brand/favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/brand/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
   ]
 }

@@ -1,6 +1,6 @@
 import WidgetKit
 
-let appGroupID = "group.com.alvarocarpintero.taskbot"
+let appGroupID = taskbotAppGroupID
 
 enum SharedSettings {
     static let defaults = UserDefaults(suiteName: appGroupID)

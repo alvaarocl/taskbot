@@ -16,7 +16,7 @@ const norm = (s) => String(s || "").normalize("NFD").replace(/\p{M}/gu, "").toLo
 // ¿El texto del examen habla de esta asignatura? (por nombre o por cómo la llamas tú)
 export function examIsFor(examText, subjectName) {
   const text = ` ${norm(examText).replace(/[^a-z0-9]+/g, " ")} `;
-  const subject = Object.values(UC3M_CONFIG.subjects).find((s) => s.name === subjectName);
+  const subject = Object.values(UC3M_CONFIG?.subjects || {}).find((s) => s.name === subjectName);
   const names = [subjectName, ...(subject?.alias || [])].map((n) => norm(n).replace(/[^a-z0-9]+/g, " ").trim());
   return names.some((n) => n && text.includes(` ${n} `));
 }
@@ -35,9 +35,9 @@ export function mergeExams(sessions, exams) {
     const replaced = replacedBy(x, sessions);
     replaced.forEach((s) => gone.add(s.key));
     const base = { uid: `exam-${x.id}`, summary: `📝 ${x.text}` };
-    // Si la UC3M ha puesto una sesión de recuperación a esa hora, el examen suele ser ahí.
+    // Si la uni ha puesto una sesión de recuperación a esa hora, el examen suele ser ahí.
     const room = x.location || (replaced.find((s) => s.type === "RECUPERACIÓN") || replaced[0])?.room;
-    const location = room ? (room === "Virtual" ? "Virtual" : `Aula ${room} · UC3M Leganés`) : null;
+    const location = room ? (room === "Virtual" ? "Virtual" : `Aula ${room}${UC3M_CONFIG?.campus ? ` · ${UC3M_CONFIG.campus}` : ""}`) : null;
     if (!x.start_at) return { ...base, date: x.due_date, allDay: true };
     return {
       ...base, location, alarmMin: 24 * 60,

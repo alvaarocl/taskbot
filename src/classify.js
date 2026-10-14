@@ -1,3 +1,4 @@
+import config from "../config.js";
 // Clasificación con Workers AI (gratis). Si falla o no hay respuesta válida,
 // el item cae como tarea normal sin categoría — nunca se pierde nada.
 
@@ -11,7 +12,7 @@ function hoyMadrid() {
 }
 
 const FIELDS =
-  `- "title": título corto y limpio para el calendario, sin la fecha ni la hora (ej: "Reunión con Marco", "Práctica 1 de Sistemas Operativos", ` +
+  `- "title": título corto y limpio para el calendario, sin la fecha ni la hora (ej: "Reunión con Ana", "Práctica 1 de Sistemas Operativos", ` +
   `en un examen "Parcial de Cálculo" o "Final de Sistemas Operativos")\n` +
   `- "kind": "cancelacion" (dice que algo de su horario fijo NO va a pasar un día: "este sábado no hay partido", ` +
   `"el jueves no hay entreno", "no hay clase de IA el martes"; en "title" pon SOLO lo que se cancela: "partido", "entreno" o "clase de IA"), ` +
@@ -19,7 +20,7 @@ const FIELDS =
   `"evento" (algo con fecha Y hora concretas: reunión, cita, quedada, llamada a una hora), ` +
   `"tarea" (algo que hay que hacer, aunque tenga fecha límite), "nota" (información a recordar) o "material" (recurso para usar después)\n` +
   `- "priority": "urgente" (explícitamente urgente o con plazo inminente), "normal", o "algun_dia" (algún día / cuando pueda / sin prisa)\n` +
-  `- "category": contexto corto en minúsculas (ej: "uni", "laaabs", "baloncesto", "personal", un nombre propio) o null\n` +
+  `- "category": contexto corto en minúsculas (ej: ${(config.assistant?.categories || ["uni", "trabajo", "personal"]).map((c) => `"${c}"`).join(", ")}, un nombre propio) o null\n` +
   `- "due_date": YYYY-MM-DD. En una tarea, la fecha límite ("mañana", "el viernes", "antes del 15"); en un evento, el día en que es. O null\n` +
   `- "time": hora de inicio "HH:MM" en 24 h si es un evento o un examen y se dice, o null\n` +
   `- "duration_min": minutos. En un evento, lo que dura (si no se dice: 60); en un examen, lo que dura (si no se dice: 90). En una tarea, tu estimación realista de lo que se tarda en hacerla (15 a 240)\n` +
@@ -61,7 +62,7 @@ export async function classify(env, text) {
             `Eres un clasificador de notas personales. Hoy es ${dia}, ${hoy}. ` +
             `Analiza el mensaje del usuario y responde SOLO con un JSON válido, sin explicaciones, con estas claves:\n` +
             FIELDS +
-            `Ejemplos: {"title":"Reunión de laaabs","kind":"evento","priority":"normal","category":"laaabs","due_date":"2026-10-08","time":"17:00","duration_min":60,"location":null}\n` +
+            `Ejemplos: {"title":"Reunión del equipo","kind":"evento","priority":"normal","category":"trabajo","due_date":"2026-10-08","time":"17:00","duration_min":60,"location":null}\n` +
             `{"title":"Práctica 2 de Estructura de Datos","kind":"tarea","priority":"normal","category":"uni","due_date":"2026-10-09","time":null,"duration_min":120,"location":null}`,
         },
         { role: "user", content: text.slice(0, 1000) },

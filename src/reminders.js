@@ -1,5 +1,8 @@
 import { tg } from "./telegram.js";
-import { agendaText, nowMadrid } from "./brain.js";
+import { agendaText, nowMadrid, addDays, dayLabel } from "./brain.js";
+import { rememberAssistant } from "./agent.js";
+
+const ASK_DAYS = 3; // días antes de un evento sin horario en los que se pregunta (cada 2 días hasta que se sepa)
 
 // Se ejecuta cada mañana (cron en wrangler.toml).
 // 1) Avisa de tareas vencidas, que vencen hoy o mañana.
@@ -38,6 +41,8 @@ export async function runReminders(env) {
     });
   }
 
+  await askPendingTimes(env, chatId, today);
+
   const stale = await env.DB.prepare(
     `SELECT * FROM items
      WHERE status='pendiente' AND kind='tarea' AND due_date IS NULL
@@ -51,10 +56,31 @@ export async function runReminders(env) {
     await tg(env, "sendMessage", {
       chat_id: chatId,
       text: ("🕸 Llevan más de 2 semanas esperando:\n\n" + lines.join("\n") +
-        "\n\n¿Siguen siendo relevantes? Márcalas hechas o bórralas desde el dashboard.").slice(0, 4000),
+        "\n\n¿Siguen siendo relevantes? Márcalas hechas o bórralas desde el panel.").slice(0, 4000),
     });
     const ids = stale.results.map((i) => i.id);
     const ph = ids.map(() => "?").join(",");
     await env.DB.prepare(`UPDATE items SET reminded_at=datetime('now') WHERE id IN (${ph})`).bind(...ids).run();
+  }
+}
+
+// Eventos de día completo con "horario por confirmar" que empiezan en los próximos días: pregunta el horario.
+// La pregunta se guarda en la memoria del asistente, así que la respuesta ("de 9 a 20, el último día hasta las 14")
+// la entiende y la aplica con fijar_horario.
+async function askPendingTimes(env, chatId, today) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, text, series, MIN(due_date) AS first, MAX(due_date) AS last FROM items
+     WHERE status='pendiente' AND kind='evento' AND tbc=1 AND due_date >= ?
+     GROUP BY COALESCE(series, CAST(id AS TEXT))
+     HAVING MIN(due_date) <= ?`
+  ).bind(today, addDays(today, ASK_DAYS)).all();
+  for (const ev of results) {
+    const key = `asktbc:${ev.series || ev.id}`;
+    if (await env.FILES.get(key)) continue;
+    const when = ev.first === ev.last ? dayLabel(ev.first) : `${dayLabel(ev.first)} – ${dayLabel(ev.last)}`;
+    const text = `🕐 «${ev.text}» (${when}) sigue sin horario. ¿Ya lo sabes? Dímelo (p. ej. "de 9 a 20, el último día hasta las 14") y lo pongo en el calendario. (#${ev.id})`;
+    await tg(env, "sendMessage", { chat_id: chatId, text });
+    await rememberAssistant(env, text);
+    await env.FILES.put(key, "1", { expirationTtl: 2 * 86400 });
   }
 }

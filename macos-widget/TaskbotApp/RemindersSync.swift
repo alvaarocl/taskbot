@@ -5,7 +5,7 @@ import Foundation
 // - cada tarea pendiente de taskbot es un recordatorio (con su fecha límite y prioridad)
 // - marcar un recordatorio como completado → la tarea se marca hecha en taskbot
 // - un recordatorio nuevo escrito a mano en la lista → se crea la tarea en taskbot
-// - una tarea hecha o borrada en taskbot (Telegram, dashboard) → su recordatorio desaparece
+// - una tarea hecha o borrada en taskbot (Telegram, panel) → su recordatorio desaparece
 // Cada recordatorio guarda el id de su tarea en la URL: taskbot://item/<id>.
 
 struct TaskbotTask: Decodable {
