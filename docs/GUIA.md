@@ -12,7 +12,7 @@ Sustituye el chat de WhatsApp contigo mismo: mandas texto, fotos, audios o archi
 Telegram (tú) ──▶ Worker /webhook ──▶ IA clasifica ──▶ D1 (tareas) + KV (archivos)
                                                           ▲
 Dashboard PWA (iPhone/PC) ◀── Worker /api ────────────────┘
-Cron diario 8:00 ──▶ bot te escribe: vence hoy / atrasado / lleva 2 semanas
+Cron diario 7:45 ──▶ bot te escribe: vence hoy / atrasado / lleva 2 semanas
 ```
 
 - **Texto** → la IA detecta: tarea/nota/material, prioridad (urgente/normal/algún día), categoría y fecha límite ("el viernes" → fecha real). Si la IA falla, se guarda como tarea normal — nunca se pierde nada.
@@ -56,7 +56,7 @@ taskbot conoce todo el horario (clases UC3M + rutina + eventos + exámenes) y co
 
 Aula Global: **cada hora** entregas y cuestionarios pendientes → tareas con hueco, entregado → hecha, cambio de fecha → aviso, recordatorios 24 h y 3 h antes, avisos y foros de los profesores → Telegram; **cada 3 h** material nuevo y notas publicadas → aviso. Necesita el secreto `AULAGLOBAL_TOKEN` (token de la app móvil de Moodle); sin él, esta parte se desactiva.
 
-Crons (la cuenta gratuita permite 5 en total entre todos los workers; aquí 3): `0 6 * * *` buenos días · `15 * * * *` Aula Global · `45 * * * *` horario UC3M (hora UTC % 3 = 0) o material y notas (% 3 = 1).
+Crons (la cuenta gratuita permite 5 en total entre todos los workers; aquí 2): `15 * * * *` Aula Global · `45 * * * *` horario UC3M (hora UTC % 3 = 0) o material y notas (% 3 = 1), y a las 7:45 de Madrid los buenos días.
 
 Cada 3 h (minuto 45) se relee la web de horarios de la UC3M (avisa por Telegram de cambios de aula, sesiones nuevas o quitadas) y se recolocan las tareas que se pasaron o que ahora chocan.
 
@@ -88,7 +88,7 @@ Paso a paso en [DEPLOY.md](../DEPLOY.md) (~15 min, sin tarjeta).
 
 ## Recordatorios
 
-Cada día a las **8:00 (verano) / 7:00 (invierno)** el bot te manda:
+Cada día a las **7:45** (hora de Madrid, todo el año) el bot te manda:
 - 🗓 La agenda del día (clases con aula, entrenos, eventos, bloques de tareas) y los huecos libres.
 - ⚠️ Tareas atrasadas, 📅 las que vencen hoy y 🔜 mañana.
 - 🕸 Tareas sin fecha con más de 2 semanas pendientes (máx. 5, se repite semanalmente).

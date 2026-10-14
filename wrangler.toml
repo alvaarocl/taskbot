@@ -24,9 +24,9 @@ id = "ec280c8780cc45d4aaf3e1007b9b6959"
 [ai]
 binding = "AI"
 
-# Recordatorio diario. Cron en UTC: 06:00 UTC = 08:00 Madrid (verano) / 07:00 (invierno)
+# Crons en UTC (la cuenta gratis permite 5 entre todos los workers). Los buenos días van en el de "45" a las 7:45 de Madrid.
 [triggers]
-crons = ["0 6 * * *", "15 * * * *", "45 * * * *"]
+crons = ["15 * * * *", "45 * * * *"]
 
 # Para usar tu dominio, descomenta y ajusta:
 # routes = [{ pattern = "tareas.tudominio.com", custom_domain = true }]

@@ -27,7 +27,7 @@ Without being asked, it also:
 
 - **Watches Moodle (Aula Global) every hour.** New assignments and quizzes become tasks, submitted ones are marked done and changed deadlines trigger an alert. Reminders go out 24 h and 3 h before each deadline, and teacher announcements and forum posts are forwarded to Telegram. Every 3 h it checks for new course material and grades.
 - **Re-reads the university timetable every 3 h** and reports room changes, added sessions and cancelled sessions.
-- **Sends a morning briefing at 8:00** with the day's classes and rooms, events, overdue tasks and free slots.
+- **Sends a morning briefing at 7:45** with the day's classes and rooms, events, overdue tasks and free slots.
 - **Publishes five calendar feeds** (classes, labs and deadlines, exams, routine, tasks) that Apple Calendar subscribes to, so everything shows up on the iPhone.
 
 It is also **an assistant for posting on X** ([`src/social.js`](src/social.js)). It never posts anything itself. Instead of fixed schedules, it speaks up when there is something worth posting about:
