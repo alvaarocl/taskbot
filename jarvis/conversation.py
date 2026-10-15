@@ -33,6 +33,7 @@ NUDGE_AFTER = 25              # s callado → "¿algo más?"
 BYE_AFTER = 15                # s más callado → se despide y cuelga
 MAX_CALL = 12 * 60            # s de llamada como mucho
 FILLER_AFTER = 1.3            # s pensando → "un momento"
+BARGE_IN = 0.4                # s hablando tú por encima de Jarvis → se calla y te escucha
 
 
 def to_pcm(mp3: bytes) -> bytes:
@@ -57,9 +58,12 @@ def sentences(text: str):
 async def say_text(pump, speak, text, wait_before=None):
     """Genera y dice `text` frase a frase: la primera suena en cuanto está, las demás se generan mientras."""
     parts = sentences(text)
+    pump.cut = False
     nxt = asyncio.create_task(asyncio.to_thread(speak, parts[0], 0))
     for i in range(len(parts)):
         pcm = to_pcm(await nxt)
+        if pump.cut:
+            return  # le has interrumpido: lo que quedaba no se dice
         if i + 1 < len(parts):
             nxt = asyncio.create_task(asyncio.to_thread(speak, parts[i + 1], 0))
         if i == 0 and wait_before:
@@ -90,6 +94,13 @@ class Pump:
         self.calls, self.target, self.buf = calls, target, bytearray()
         self.last_voice = 0.0
         self.task = None
+        self.cut = False  # True si le has interrumpido
+
+    def stop(self):
+        """Te ha oído hablar por encima: deja de sonar ya."""
+        self.buf.clear()
+        self.cut = True
+        self.last_voice = 0.0
 
     @property
     def speaking(self):
@@ -101,7 +112,8 @@ class Pump:
     async def done(self):
         while self.speaking:
             await asyncio.sleep(0.05)
-        await asyncio.sleep(0.3)  # cola del eco
+        if not self.cut:
+            await asyncio.sleep(0.3)  # cola del eco
 
     async def run(self):
         silence = bytes(FRAME)
@@ -122,20 +134,36 @@ class Pump:
 
 
 class Ears:
-    """Detector de frases por energía, con ruido de fondo adaptativo. Ignora lo que llega mientras Jarvis habla."""
+    """Detector de frases por energía, con ruido de fondo adaptativo. Mientras Jarvis habla solo atiende a una voz
+    clara y sostenida (BARGE_IN): entonces le corta y esa voz es el principio de tu frase. El teléfono ya cancela el
+    eco de lo que dice Jarvis, así que lo que llega fuerte mientras habla eres tú."""
 
     def __init__(self, pump):
         self.pump, self.noise = pump, 300.0
         self.cur, self.in_speech, self.quiet = bytearray(), False, 0.0
+        self.barge, self.barge_secs, self.barge_gap = bytearray(), 0.0, 0.0
         self.phrases = asyncio.Queue()
         self.heard_at = time.monotonic()
 
     def feed(self, chunk: bytes):
+        level, secs = rms(chunk), len(chunk) / 2 / IN_RATE
         if self.pump.speaking or time.monotonic() - self.pump.last_voice < 0.4:
             self.cur.clear()
             self.in_speech = False
+            if level > max(900.0, self.noise * 5):
+                self.barge += chunk
+                self.barge_secs, self.barge_gap = self.barge_secs + secs, 0.0
+                if self.barge_secs >= BARGE_IN:
+                    self.pump.stop()
+                    self.cur, self.in_speech, self.quiet = self.barge, True, 0.0
+                    self.barge, self.barge_secs = bytearray(), 0.0
+            elif self.barge:
+                self.barge += chunk
+                self.barge_gap += secs
+                if self.barge_gap > 0.25:  # era un golpe o una tos, no una frase
+                    self.barge, self.barge_secs, self.barge_gap = bytearray(), 0.0, 0.0
             return
-        level, secs = rms(chunk), len(chunk) / 2 / IN_RATE
+        self.barge, self.barge_secs, self.barge_gap = bytearray(), 0.0, 0.0
         threshold = max(400.0, self.noise * 3)
         if level > threshold:
             self.in_speech, self.quiet = True, 0.0
@@ -242,7 +270,7 @@ async def converse(client, target, wake_at, opening: str, job: str, speak, taskb
                 break
             continue
 
-        nudged, turns = False, turns + 1
+        nudged, turns, pump.cut = False, turns + 1, False
         log(f"turno {turns}: {len(pcm) / 2 / IN_RATE:.1f} s de voz")
         ask = asyncio.create_task(asyncio.to_thread(
             taskbot, "POST", {"job": job, "audio": base64.b64encode(to_wav(pcm)).decode()}, "/turn"))
@@ -257,6 +285,8 @@ async def converse(client, target, wake_at, opening: str, job: str, speak, taskb
         reply = (res or {}).get("reply")
         if not reply:
             continue  # ruido o nada que entender
+        if pump.cut:
+            continue  # le has cortado el "un momento": ya estás diciendo otra cosa
         await say_text(pump, speak, reply, wait_before=pump.done)
         if res.get("end"):
             break
