@@ -4,7 +4,8 @@
 // Los dos hablan el formato de chat de OpenAI (messages + tools), así que el bucle del agente no cambia.
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = "openai/gpt-oss-120b";
+// En el plan gratuito cada modelo tiene su propio cupo (8.000 tokens/min): si uno se agota, se pasa al otro.
+const GROQ_MODELS = { smart: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"], fast: ["openai/gpt-oss-20b", "openai/gpt-oss-120b"] };
 const CF_MODEL = "@cf/openai/gpt-oss-120b";
 const TIMEOUT_MS = 45000;
 
@@ -25,14 +26,14 @@ export function cleanMessage(m) {
   return out;
 }
 
-async function groq(env, body) {
+async function groq(env, model, body) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
     const r = await fetch(GROQ_URL, {
       method: "POST",
       headers: { authorization: `Bearer ${env.GROQ_API_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({ model: GROQ_MODEL, ...body }),
+      body: JSON.stringify({ model, ...body }),
       signal: ctrl.signal,
     });
     if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).slice(0, 200)}`);
@@ -46,19 +47,22 @@ async function groq(env, body) {
  * Una vuelta de chat. Devuelve { message, provider } con el mensaje del asistente ya limpio
  * (content + tool_calls). Lanza si fallan los dos proveedores.
  */
-export async function chat(env, { messages, tools, effort = "medium", maxTokens = 4000 }) {
+// `prefer`: "smart" (Telegram: el modelo grande primero) o "fast" (llamada de voz: el pequeño, más rápido, primero).
+export async function chat(env, { messages, tools, effort = "medium", maxTokens = 4000, prefer = "smart" }) {
   const body = { messages, max_tokens: maxTokens, reasoning_effort: effort };
   if (tools?.length) Object.assign(body, { tools, tool_choice: "auto" });
 
   const errors = [];
   if (env.GROQ_API_KEY) {
-    try {
-      const j = await groq(env, body);
-      console.log(`[llm] groq ${j.usage?.prompt_tokens} in / ${j.usage?.completion_tokens} out · caché ${j.usage?.prompt_tokens_details?.cached_tokens ?? 0}`);
-      return { message: cleanMessage(j.choices?.[0]?.message), provider: "groq", usage: j.usage };
-    } catch (e) {
-      errors.push(String(e?.message || e));
-      console.warn("llm groq →", errors.at(-1));
+    for (const model of GROQ_MODELS[prefer] || GROQ_MODELS.smart) {
+      try {
+        const j = await groq(env, model, body);
+        console.log(`[llm] groq ${model} ${j.usage?.prompt_tokens} in / ${j.usage?.completion_tokens} out · caché ${j.usage?.prompt_tokens_details?.cached_tokens ?? 0}`);
+        return { message: cleanMessage(j.choices?.[0]?.message), provider: "groq", usage: j.usage };
+      } catch (e) {
+        errors.push(String(e?.message || e).slice(0, 160));
+        console.warn(`llm groq ${model} →`, errors.at(-1));
+      }
     }
   }
   try {

@@ -22,7 +22,6 @@ import sys
 import urllib.request
 from datetime import datetime, timezone
 
-import edge_tts
 from pytgcalls import PyTgCalls, filters
 from pytgcalls.exceptions import CallBusy, CallDeclined, CallDiscarded, TimedOutAnswer
 from telethon.errors import UserPrivacyRestrictedError
@@ -47,7 +46,8 @@ HEADERS = {"authorization": f"Bearer {os.environ['REPORT_TOKEN']}", "content-typ
 def taskbot(method, body=None, query=""):
     req = urllib.request.Request(os.environ["REPORT_URL"] + query, method=method, headers=HEADERS,
                                  data=json.dumps(body).encode() if body is not None else None)
-    with urllib.request.urlopen(req, timeout=20) as r:
+    # Un turno de conversación puede tardar: el asistente transcribe, piensa y a veces usa varias herramientas.
+    with urllib.request.urlopen(req, timeout=60) as r:
         return json.loads(r.read())
 
 
@@ -59,6 +59,7 @@ def report(status, attempts):
 
 
 async def speak(text, voice):
+    import edge_tts  # solo la voz de respaldo (GitHub); en Modal la voz la genera OmniVoice
     # Un segundo de margen al empezar: al descolgar se pierde el principio del audio.
     await edge_tts.Communicate("... " + text, voice, rate="+4%").save(AUDIO)
 
@@ -81,6 +82,12 @@ async def main():
     log("generando la voz")
     await speak(job["text"], job.get("voice") or "es-ES-AlvaroNeural")
 
+    return await dial(target, AUDIO, wake_at)
+
+
+async def dial(target, audio_path, wake_at):
+    """Llama a `target` a la hora `wake_at`, reproduce `audio_path` y cuelga; reintenta si no lo coges.
+    Avisa a taskbot del resultado. Devuelve el código de salida (0 = lo has cogido)."""
     client = TelegramClient(StringSession(os.environ["TG_SESSION"]), int(os.environ["TG_API_ID"]), os.environ["TG_API_HASH"])
     calls = PyTgCalls(client)
     finished = asyncio.Event()
@@ -97,7 +104,7 @@ async def main():
     await calls.start()
     await wait_until(wake_at)
 
-    stream = MediaStream(AUDIO, video_flags=MediaStream.Flags.IGNORE)
+    stream = MediaStream(audio_path, video_flags=MediaStream.Flags.IGNORE)
     status, attempt = "no_answer", 0
     while attempt < ATTEMPTS and status != "answered":
         attempt += 1

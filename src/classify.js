@@ -159,7 +159,8 @@ export async function transcribe(env, arrayBuffer, mime = "audio/ogg") {
   if (env.GROQ_API_KEY) {
     try {
       const form = new FormData();
-      form.append("file", new Blob([arrayBuffer], { type: mime }), mime.includes("mpeg") ? "audio.mp3" : "audio.ogg");
+      const ext = mime.includes("mpeg") ? "mp3" : mime.includes("wav") ? "wav" : "ogg";
+      form.append("file", new Blob([arrayBuffer], { type: mime }), `audio.${ext}`);
       form.append("model", "whisper-large-v3-turbo");
       form.append("language", "es");
       const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {

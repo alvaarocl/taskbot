@@ -376,17 +376,40 @@ export async function undoBatch(env, key) {
 
 // ---------- bucle ----------
 
+// Llamada de Jarvis: lo que escribe se convierte en voz.
+const VOICE_PROMPT = `MODO LLAMADA: estás hablando por teléfono con él y lo que escribas se convierte en voz.
+- Responde en una a tres frases cortas y naturales. Nada de listas, emojis, símbolos, URLs ni markdown; horas en palabras ("a las cinco y media").
+- Trátale de usted y llámale "señor": sereno, elegante y con algún toque de ironía amable (sin abusar).
+- Si te pide algo, usa las herramientas igual que siempre y confírmalo en una frase ("Hecho, señor: se lo he puesto el jueves a las cinco").
+- Pregunta en vez de soltar parrafadas: da lo más importante y ofrece seguir ("¿Quiere que le cuente también las entregas?").
+- Lo que oyes viene de un reconocimiento de voz: si algo no tiene sentido o falta un dato, pídele que lo repita o pregunta.
+- Si quiere colgar ("gracias, eso es todo", "adiós", "nada más"), despídete en una frase y termina tu respuesta con [FIN].`;
+
+// Voz: quita lo que no se puede leer en alto (emojis, viñetas, #ids).
+const speakable = (t) => plain(t).replace(/\s*°\s*C\b/g, " grados").replace(/\s*%/g, " por ciento").replace(/\[FIN\]/g, "").replace(/#\d+/g, "").replace(/\(\s*\)/g, "").replace(/[\p{Extended_Pictographic}\u{FE0F}]/gu, "").replace(/^\s*•\s*/gm, "").replace(/\s{2,}/g, " ").trim();
+
 // `queued`: viene de la cola de espera; si sigue sin cuota devuelve "quota" en vez de volver a encolarlo.
-export async function agent(env, chatId, text, { queued = false } = {}) {
-  await tg(env, "sendChatAction", { chat_id: chatId, action: "typing" });
+// `voice`: turno de una llamada de Jarvis ({ facts }): no escribe en el chat la respuesta, la devuelve
+// ({ reply, end }) para decirla en voz alta; lo que haga sí te lo deja en Telegram, en silencio, con ↩️.
+export async function agent(env, chatId, text, { queued = false, voice = null } = {}) {
+  if (!voice) await tg(env, "sendChatAction", { chat_id: chatId, action: "typing" });
   const now = nowMadrid();
   const history = (await env.FILES.get(HISTORY, { type: "json" })) || [];
-  const items = await listItems(env, now.date);
+  let items = await listItems(env, now.date);
+  if (voice) {
+    // En la llamada, contexto corto (el cupo gratuito de Groq va por tokens por minuto): lo de los próximos 7 días.
+    const until = addDays(now.date, 7);
+    items = items.filter((i) => {
+      const d = (i.start_at || i.due_date || "").slice(0, 10);
+      return d && d <= until && (i.kind !== "cancelacion");
+    }).slice(0, 40);
+  }
 
   const messages = [
     { role: "system", content: stablePrompt() },
-    { role: "system", content: await contextPrompt(env, now, items) },
-    ...history,
+    { role: "system", content: voice ? `${todayLine(now)}\n\nLO QUE TIENE GUARDADO (próximos 7 días):\n${items.map(describe).join("\n") || "(nada)"}` : await contextPrompt(env, now, items) },
+    ...(voice ? [{ role: "system", content: `${VOICE_PROMPT}${voice.facts ? `\n\nDATOS DE HOY:\n${voice.facts}` : ""}` }] : []),
+    ...(voice ? history.slice(-6) : history),
     { role: "user", content: text.slice(0, MAX_INPUT) },
   ];
   const run = newRun();
@@ -394,7 +417,7 @@ export async function agent(env, chatId, text, { queued = false } = {}) {
 
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      const { message } = await chat(env, { messages, tools: TOOLS, effort: "medium" });
+      const { message } = await chat(env, { messages, tools: TOOLS, effort: voice ? "low" : "medium" });
       messages.push(message);
       if (!message.tool_calls?.length) {
         reply = message.content.trim();
@@ -421,6 +444,7 @@ export async function agent(env, chatId, text, { queued = false } = {}) {
     }
   } catch (e) {
     console.error("agent", e?.message || e);
+    if (voice && !run.log.length) return { reply: "Perdone, señor, se me ha ido el santo al cielo un momento. ¿Me lo repite?", end: false };
     // Sin modelo y sin haber tocado nada: que lo guarde el camino de siempre (o avise si era una pregunta).
     if (!run.created.length && !run.edited.length && !run.deletions.length) {
       // Sin cuota de IA: a la cola, para hacerlo bien cuando vuelva (no como tarea suelta ni material).
@@ -436,6 +460,7 @@ export async function agent(env, chatId, text, { queued = false } = {}) {
     reply = "⚠️ Me he cortado a medias, pero esto ya está hecho.";
   }
 
+  if (voice) return voiceTurn(env, chatId, text, reply, run, history);
   if (!reply) reply = run.log.length ? "Hecho." : "No he sabido qué hacer con eso 🤷";
   reply = plain(reply);
   if (run.log.length) reply += `\n\n${run.log.map((l) => `• ${l}`).join("\n")}`;
@@ -461,6 +486,37 @@ export async function agent(env, chatId, text, { queued = false } = {}) {
   history.push({ role: "user", content: text.slice(0, 3000) }, { role: "assistant", content: reply.slice(0, 1500) });
   await env.FILES.put(HISTORY, JSON.stringify(history.slice(-HISTORY_TURNS)), { expirationTtl: 24 * 3600 });
   return true;
+}
+
+// Cierre de un turno de llamada: lo hecho va a Telegram (silencioso, con ↩️ y los botones de borrar) y la
+// respuesta vuelve para decirla en voz alta.
+async function voiceTurn(env, chatId, text, reply, run, history) {
+  // Colgar solo si se despide de verdad, o si el modelo cierra ([FIN]) sin hacerle ninguna pregunta.
+  const bye = /\b(adi[oó]s|hasta (luego|ma[nñ]ana|despu[eé]s|la vista)|chao|eso es todo|nada m[aá]s|ya est[aá] (todo|por hoy)|puedes colgar|cuelga)\b/i.test(text);
+  const end = bye; // el modelo a veces marca [FIN] sin que se despida: solo cuelga si se despide (o por silencio)
+  const spoken = speakable(reply || (run.log.length ? "Hecho, señor." : "Perdone, ¿me lo repite?"));
+  if (run.log.length || run.deletions.length) {
+    const keyboard = [];
+    if (run.created.length || run.edited.length) {
+      const key = crypto.randomUUID().slice(0, 12);
+      await env.FILES.put(`undob:${key}`, JSON.stringify({ created: run.created, edited: run.edited }), { expirationTtl: 2 * 86400 });
+      keyboard.push([{ text: "↩️ Deshacer", callback_data: `ub:${key}` }]);
+    }
+    for (const d of run.deletions) {
+      keyboard.push([
+        { text: `🗑 Borrar #${d.id}${d.series ? " (todos los días)" : ""}`, callback_data: `${d.series ? "ds" : "del"}:${d.id}` },
+        { text: "Cancelar", callback_data: `keep:${d.id}` },
+      ]);
+    }
+    await tg(env, "sendMessage", {
+      chat_id: chatId, disable_notification: true,
+      text: `📞 En la llamada con Jarvis:\n${run.log.map((l) => `• ${l}`).join("\n")}${run.deletions.length ? "\n\nConfirma el borrado aquí:" : ""}`.slice(0, 4000),
+      ...(keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+    });
+  }
+  history.push({ role: "user", content: `(por voz, en la llamada) ${text.slice(0, 2000)}` }, { role: "assistant", content: spoken.slice(0, 1000) });
+  await env.FILES.put(HISTORY, JSON.stringify(history.slice(-HISTORY_TURNS)), { expirationTtl: 24 * 3600 });
+  return { reply: spoken, end };
 }
 
 /** Para que el bot recuerde lo que preguntó él (p. ej. el horario de la hackathon) y entienda la respuesta. */

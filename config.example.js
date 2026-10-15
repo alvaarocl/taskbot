@@ -108,6 +108,7 @@ export default {
   jarvis: null,
   // jarvis: {
   //   repo: "tu-usuario/jarvis", workflow: "call.yml", voice: "es-ES-AlvaroNeural",
+  //   modalUrl: "https://TU-USUARIO--jarvis-start.us-east.modal.run", // opcional: voz natural en Modal (ver jarvis/modal_app.py)
   //   location: { name: "Madrid", lat: 40.4168, lon: -3.7038 }, // para el tiempo
   // },
 
