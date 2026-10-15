@@ -154,6 +154,14 @@ export async function classifyAudioTranscript(env, text) {
 
 // Audio → texto. Primero Whisper en Groq si hay GROQ_API_KEY (gratis y sin gastar neuronas); si no, o si falla,
 // Whisper en Workers AI. Devuelve null si no hay texto; lanza QuotaError si no queda cuota en ninguno.
+// Palabras que Whisper debe esperar (asignaturas, Notion, Aula Global…): sin esto oye "estar" donde dices "Start".
+function vocabulary() {
+  const words = Object.values(config.uc3m?.subjects || {}).map((s) => s.name);
+  if (config.notion) words.push("Notion", config.notion.name || "Start");
+  if (config.aulaGlobal) words.push(config.aulaGlobal.name || "Aula Global");
+  return words.length ? `Vocabulario: ${words.join(", ")}.` : "";
+}
+
 export async function transcribe(env, arrayBuffer, mime = "audio/ogg") {
   const errors = [];
   if (env.GROQ_API_KEY) {
@@ -163,6 +171,7 @@ export async function transcribe(env, arrayBuffer, mime = "audio/ogg") {
       form.append("file", new Blob([arrayBuffer], { type: mime }), `audio.${ext}`);
       form.append("model", "whisper-large-v3-turbo");
       form.append("language", "es");
+      if (vocabulary()) form.append("prompt", vocabulary());
       const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
         method: "POST", headers: { authorization: `Bearer ${env.GROQ_API_KEY}` }, body: form,
       });

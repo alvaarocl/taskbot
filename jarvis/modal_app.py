@@ -57,7 +57,7 @@ def chunks(text, limit=260):
     return out
 
 
-@app.cls(gpu="T4", image=voice_image, volumes={"/vol": vol}, scaledown_window=120, timeout=900)
+@app.cls(gpu="T4", image=voice_image, volumes={"/vol": vol}, scaledown_window=120, timeout=900, max_containers=1)  # una sola GPU: las frases esperan turno en vez de arrancar otra en frío (25 s)
 class Voice:
     @modal.enter()
     def load(self):
