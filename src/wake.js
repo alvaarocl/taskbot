@@ -14,10 +14,13 @@ import { cachedEvents } from "./notion.js";
 import { classPlans } from "./aulaglobal.js";
 import { transcribe } from "./classify.js";
 import { agent } from "./agent.js";
+import { recentMail } from "./mail.js";
 
 const PLAN = "wake:plan"; // { once: { "YYYY-MM-DD": "HH:MM" }, daily: { days: [1..7], time: "HH:MM" } | null }
 const SENT = (date) => `wake:sent:${date}`;
 const TEXT = (date) => `wake:text:${date}`;
+const DONE = (date) => `wake:done:${date}`; // la llamada ha informado de cómo fue
+const MISSED = (date) => `wake:missed:${date}`; // ya se avisó de que no llegó a llamar
 const JOB = (id) => `wake:job:${id}`; // { text, target, voice, date }: el workflow lo pide por /api/jarvis (no va en sus registros)
 const DAY_NAMES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
@@ -102,6 +105,7 @@ export async function dayFacts(env, date) {
     weather(),
     radar(env).catch(() => []),
   ]);
+  const mails = await recentMail(env).catch(() => []);
   // Lo que toca en cada clase de hoy y mañana, del calendario del profe en Moodle (unas líneas, no el PDF).
   const tomorrowAgenda = await agendaData(env, tomorrow);
   const subjectsOf = (ag) => [...new Set(ag.blocks.filter((b) => b.label.startsWith("📚")).map((b) => b.label.replace(/^📚\s*/, "").split(" · ")[0]))];
@@ -121,6 +125,7 @@ export async function dayFacts(env, date) {
       ? ["QUÉ TOCA EN CLASE (calendario del profe):", ...planLines(plansToday, "hoy"), ...planLines(plansTomorrow, "mañana")] : []),
     "ENTREGAS DE LA UNI (3 días):",
     ...aula.results.map((a) => `- ${a.text} · cierra ${dayLabel(a.due_at.slice(0, 10))} ${a.due_at.slice(11)}`),
+    mails.length ? `CORREOS IMPORTANTES (últimos días): ${mails.join("; ")}` : "",
     notionSoon.length ? `PRÓXIMOS EVENTOS (${config.notion?.name || "Notion"}): ${notionSoon.join("; ")}` : "",
     w ? `TIEMPO: ${w}` : "",
     news.length ? `LO MÁS COMENTADO EN TECNOLOGÍA: ${news.join("; ")}` : "",
@@ -217,6 +222,7 @@ function madridIso(date, time) {
 export async function wakeTick(env, at = Date.now()) {
   if (!jarvisOn(env)) return;
   const now = nowMadrid();
+  await checkMissed(env, now.date, at);
   for (const date of [now.date, addDays(now.date, 1)]) {
     const time = await wakeFor(env, date);
     if (!time) continue;
@@ -246,6 +252,20 @@ export async function callNow(env) {
   await dispatch(env, new Date().toISOString(), text, { opening, facts });
 }
 
+// Si la llamada de hoy se programó pero 40 min después nadie ha informado (Modal y GitHub fallaron), se avisa.
+async function checkMissed(env, date, at) {
+  const time = await wakeFor(env, date);
+  if (!time || !(await env.FILES.get(SENT(date)))) return;
+  if ((at - Date.parse(madridIso(date, time))) / 60000 < 40) return;
+  if (await env.FILES.get(DONE(date)) || await env.FILES.get(MISSED(date))) return;
+  await env.FILES.put(MISSED(date), "1", { expirationTtl: 2 * 86400 });
+  const text = await env.FILES.get(TEXT(date));
+  await tg(env, "sendMessage", {
+    chat_id: env.OWNER_CHAT_ID,
+    text: `⚠️ Jarvis no ha llegado a llamarte a las ${time}: ni Modal ni GitHub han dado señales. /salud te dice qué falla.${text ? `\n\nTu día:\n\n${text}` : ""}`.slice(0, 4000),
+  });
+}
+
 /** GET /api/jarvis?job=…: lo que tiene que decir la llamada. */
 export async function jarvisJob(env, id) {
   return (id && (await env.FILES.get(JOB(id), { type: "json" }))) || null;
@@ -270,6 +290,7 @@ export async function jarvisTurn(env, body) {
 /** POST /api/jarvis desde el workflow: { status: "answered" | "no_answer" | "privacy", job }. */
 export async function jarvisReport(env, body) {
   const job = await jarvisJob(env, body?.job);
+  if (job?.date) await env.FILES.put(DONE(job.date), body?.status || "?", { expirationTtl: 2 * 86400 });
   if (body?.status === "answered") return { ok: true };
   if (body?.status === "privacy") {
     await tg(env, "sendMessage", { chat_id: env.OWNER_CHAT_ID, text: "📵 Jarvis no puede llamarte: tu privacidad de Telegram lo bloquea. En tu cuenta: Ajustes → Privacidad y seguridad → Llamadas → «Todos», o en «Siempre permitir» añade la cuenta de Jarvis. Luego prueba otra vez con /llamame." });

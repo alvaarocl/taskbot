@@ -145,6 +145,23 @@ def start(body: dict):
     return {"ok": True}
 
 
+@app.function(image=call_image, secrets=[secret], timeout=60)
+@modal.fastapi_endpoint(method="POST")
+async def health(body: dict):
+    """Chequeo de salud de taskbot (src/health.js): ¿sigue abierta la sesión de la cuenta de Telegram que llama?"""
+    if body.get("token") != os.environ["REPORT_TOKEN"]:
+        return {"error": "unauthorized"}
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+
+    client = TelegramClient(StringSession(os.environ["TG_SESSION"]), int(os.environ["TG_API_ID"]), os.environ["TG_API_HASH"])
+    await client.connect()
+    try:
+        return {"ok": True, "telegram": await client.is_user_authorized()}
+    finally:
+        await client.disconnect()
+
+
 @app.local_entrypoint()
 def prueba(texto: str = "Buenos días, señor. Son las ocho en punto, y me temo que hoy no podrá quedarse en la cama. ¿Desea algo más?", salida: str = "jarvis_prueba.mp3"):
     """modal run jarvis/modal_app.py --texto "…": genera la voz y la guarda aquí, sin llamar a nadie."""

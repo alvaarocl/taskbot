@@ -158,6 +158,17 @@ Si tienes otro worker con un formulario o una agenda de reservas, puede empujar 
 service binding. El contrato está al principio de [`src/inbox.js`](src/inbox.js). Activa `panel.inbox: true`.
 Si guardas datos de otras personas, dilo en tu política de privacidad.
 
+### Correo (avisos y tareas de tu correo)
+Necesitas un dominio en Cloudflare con **Email Routing** activado (gratis).
+1. En `config.js`, el bloque `mail`: `address` (la dirección nueva), `forwarders` (tus cuentas), `watch`, `ignore`.
+2. Despliega. En Cloudflare → tu dominio → Email → Email Routing → Routing rules → **Create address**: la dirección
+   de `address` → acción **Send to a Worker** → `taskbot`.
+3. Gmail → Configuración → Reenvío y correo POP/IMAP → **Añadir una dirección de reenvío** → la de `address`. El bot
+   te manda por Telegram el código de confirmación. Después, marca "Reenviar una copia del correo entrante".
+4. Prueba: escríbete desde Gmail a esa dirección con algo como "el lunes a las 10 tengo dentista".
+Otras cuentas (la de la universidad, Outlook): una regla de reenvío a la misma dirección, si tu organización lo
+permite, y añade la cuenta a `forwarders`.
+
 ### App y widget de macOS
 Ver [`macos-widget/README.md`](macos-widget/README.md).
 

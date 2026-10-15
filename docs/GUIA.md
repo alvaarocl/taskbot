@@ -122,6 +122,40 @@ semana). Si un evento sin horario empieza en 3 días o menos, te pregunta el hor
 
 Para cambiar la hora: `MORNING_HOUR_MADRID` en `src/index.js`.
 
+## Cierre del día (opcional, `evening`)
+
+A las **22:45** (`evening.hour`) te escribe lo que ha quedado pendiente: tareas que vencían hasta hoy y bloques de
+hoy sin hacer (máx. 8). Cada una tiene ✅ y ➡️ a mañana; también hay ➡️ Todo a mañana y 👌 Lo dejo así. Si no queda
+nada, no escribe.
+
+- "A mañana": si tenía bloque, se le busca el primer hueco libre de mañana; si solo tenía fecha, pasa a mañana.
+- Las entregas de la uni (Moodle, cronogramas) solo tienen ✅: su fecha no la decides tú.
+- Lo que no toques sigue igual, y puedes contestar al asistente ("pasa lo de Cálculo al lunes").
+
+## Correo (opcional, `mail`)
+
+Tus cuentas reenvían el correo a una dirección tuya (`mail.address`, p. ej. `bandeja@tudominio.com`) que recibe el
+worker con Cloudflare Email Routing. Por cada correo:
+
+1. Solo se aceptan los reenviados por `mail.forwarders` (Gmail reenvía como `tu+caf_…@gmail.com`, y vale igual).
+2. Fuera sin IA: boletines y listas (`List-Unsubscribe`, `List-Id`), respuestas automáticas y lo de `mail.ignore`.
+   Lo de `mail.watch` (p. ej. `uc3m.es`) siempre lo mira la IA aunque parezca un boletín.
+3. La IA (Groq, el modelo pequeño) decide si te pide algo o trae una fecha. Es muy selectiva.
+4. Si importa: 📧 remitente, asunto, qué pasa y la propuesta (📌 tarea o 📅 evento) con **📌 Apuntar** /
+   **✕ No hace falta**. Nunca apunta nada sola.
+
+No se guarda el correo: solo remitente, asunto y la propuesta, 7 días (para el botón y para que Jarvis te lo
+cuente por la mañana). Si la IA no responde, el texto recortado espera hasta 2 días y se reintenta en el cron de :15.
+
+## Chequeo de salud (opcional, `health`)
+
+A las **21:15** (`health.hour`) comprueba el webhook de Telegram, la clave de Groq, el token de Notion, la cola de
+mensajes y Jarvis (token de GitHub, Modal y la sesión de la cuenta que llama). Solo escribe si algo falla, con cómo
+arreglarlo. `/salud` lo hace en el momento y enseña también lo que va bien. Moodle no se mira aquí porque ya avisa
+solo cuando caduca su token.
+
+Jarvis, además, avisa si una llamada programada no llega a sonar (40 min después sin noticias de Modal ni de GitHub).
+
 ## Panel
 
 Tres pestañas (las de módulos apagados no salen):
@@ -165,7 +199,8 @@ Comandos: `/post idea`, `/radar`, `/cita N`, `/guardar N`, `/hilo`.
 
 La cuenta gratuita permite 5 en total entre todos tus workers; taskbot usa 2. `15 * * * *`: Moodle.
 `45 * * * *`: horario (hora UTC % 3 = 0) o material y notas (% 3 = 1), asistente de X y, en hora de Madrid, buenos
-días a las 7:45, limpieza a las 4:45 y resumen el domingo a las 20:45.
+días a las 7:45, limpieza a las 4:45, resumen el domingo a las 20:45 y cierre del día a las 22:45. El de `15` hace
+también el chequeo de salud (21:15), la cola de mensajes y la de correos.
 
 ## Estructura
 
@@ -192,6 +227,9 @@ src/notion.js     Notion: eventos, tareas asignadas y búsqueda (opcional)
 src/queue.js      mensajes en espera cuando no queda cuota de IA
 src/inbox.js      bandeja de tu web (opcional)
 src/weekly.js     resumen semanal
+src/mail.js       correo → avisos y tareas (opcional)
+src/health.js     chequeo de salud y /salud
+src/evening.js    cierre del día
 src/social.js     asistente de X
 public/           panel PWA
 scripts/          moodle-token.mjs: saca el token de Moodle

@@ -112,6 +112,25 @@ export default {
   //   location: { name: "Madrid", lat: 40.4168, lon: -3.7038 }, // para el tiempo
   // },
 
+  // OPCIONAL: tu correo → avisos y tareas. Cloudflare Email Routing manda al worker lo que llega a `address` y tus
+  // cuentas (Gmail, la de la uni…) reenvían ahí. Solo se aceptan correos reenviados por `forwarders`. La IA es muy
+  // selectiva y nunca apunta nada sin que pulses el botón. Cómo configurarlo, en DEPLOY.md. Apagado: mail: null.
+  mail: null,
+  // mail: {
+  //   address: "bandeja@tudominio.com",
+  //   forwarders: ["tu@gmail.com"], // cuentas que reenvían (Gmail reenvía como tu+caf_…@gmail.com: vale igual)
+  //   watch: ["uc3m.es"], // dominios que siempre mira la IA, aunque parezcan boletines (listas de la universidad)
+  //   ignore: ["aulaglobal"], // remitentes que nunca mira (lo que ya avisa otro módulo)
+  // },
+
+  // OPCIONAL: chequeo de salud. Cada noche comprueba que todo lo conectado funciona y solo te escribe si algo falla.
+  // /salud lo hace en el momento. Apagado: health: null.
+  health: { hour: 21 },
+
+  // OPCIONAL: cierre del día. Por la noche te dice qué ha quedado pendiente y lo pasas a mañana con un botón.
+  // Apagado: evening: null.
+  evening: { hour: 22 },
+
   // Asistente de X (src/social.js): avisa y escribe borradores; nunca publica.
   social: {
     // Quién escribe: lo usa la IA para los borradores.

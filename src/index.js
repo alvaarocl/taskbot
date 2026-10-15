@@ -13,6 +13,9 @@ import { agent } from "./agent.js";
 import { processQueue } from "./queue.js";
 import { fetchEvents, syncNotionTasks } from "./notion.js";
 import { wakeTick, jarvisReport, jarvisJob, jarvisTurn } from "./wake.js";
+import { handleEmail, retryMail } from "./mail.js";
+import { nightlyHealth } from "./health.js";
+import { eveningClose } from "./evening.js";
 
 // Deben coincidir con los crons de wrangler.toml. La cuenta gratuita permite 5 crons en total
 // (entre todos los workers), así que el de "45" reparte el trabajo según la hora.
@@ -56,21 +59,30 @@ export default {
     return withSecurityHeaders(await env.ASSETS.fetch(request));
   },
 
+  // Correo que reenvían tus cuentas a config.mail.address (Cloudflare Email Routing → este worker).
+  async email(message, env, ctx) {
+    await handleEmail(message, env).catch((e) => console.error("correo", e?.stack || e));
+  },
+
   async scheduled(event, env, ctx) {
     const at = new Date(event.scheduledTime);
     const hour = at.getUTCHours();
+    const madridHour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", hourCycle: "h23" }).format(at));
     if (event.cron === AULA_CRON) {
+      // Chequeo de salud (~6 peticiones): una vez por la noche, solo escribe si algo falla.
+      if (config.health && madridHour === (config.health.hour ?? 21)) ctx.waitUntil(nightlyHealth(env).catch((e) => console.error("salud", e?.message || e)));
       ctx.waitUntil(syncAulaGlobal(env));
       ctx.waitUntil(processQueue(env, agent).catch((e) => console.error("cola", e?.message || e))); // mensajes en espera por falta de cuota
       ctx.waitUntil(wakeTick(env, event.scheduledTime).catch((e) => console.error("jarvis", e?.message || e)));
+      ctx.waitUntil(retryMail(env).catch((e) => console.error("correo", e?.message || e))); // correos que esperaban a la IA
     }
     else if (event.cron === SPLIT_CRON) {
-      const madrid = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", hourCycle: "h23", weekday: "short" }).formatToParts(at);
-      const madridHour = Number(madrid.find((p) => p.type === "hour").value);
-      const sunday = madrid.find((p) => p.type === "weekday").value === "Sun";
+      const sunday = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", weekday: "short" }).format(at) === "Sun";
       if (madridHour === MORNING_HOUR_MADRID) ctx.waitUntil(runReminders(env));
       if (madridHour === PURGE_HOUR_MADRID) ctx.waitUntil(Promise.all([purgeAuth(env), purgeInbox(env)]));
       const weekly = !!config.weekly && sunday && madridHour === WEEKLY_HOUR_MADRID;
+      // Cierre del día: lo que ha quedado pendiente, con botones para pasarlo a mañana.
+      if (config.evening && madridHour === (config.evening.hour ?? 22)) ctx.waitUntil(eveningClose(env).catch((e) => console.error("cierre", e?.message || e)));
       if (weekly) ctx.waitUntil(buildWeekly(env).catch((e) => console.error("resumen semanal", e?.stack || e)));
       // Máximo 50 peticiones externas por ejecución: el horario usa ~4, material y notas ~15 y el asistente de X ~14 (~18 cuando toca Trending por lenguajes o eventos).
       if (hour % 3 === 0) ctx.waitUntil(syncUc3m(env));

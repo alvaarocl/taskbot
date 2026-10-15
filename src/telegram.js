@@ -11,6 +11,9 @@ import { socialCommand, socialCallback } from "./social.js";
 import { createRecoveryLink } from "./auth.js";
 import { buildWeekly } from "./weekly.js";
 import { jarvisOn, callNow } from "./wake.js";
+import { mailCallback } from "./mail.js";
+import { healthReport } from "./health.js";
+import { eveningCallback } from "./evening.js";
 import {
   agendaText, weekFreeText, scheduleTask, conflictsFor, nowMadrid, dayLabel,
   addDays, toMin, fromMin,
@@ -87,6 +90,7 @@ async function handleMessage(msg, env) {
         { command: "resumen", description: "Resumen de la semana" },
         { command: "llamame", description: "Jarvis te llama ya y te cuenta el día" },
         { command: "acceso", description: "Enlace para entrar al panel" },
+        { command: "salud", description: "¿Funciona todo lo conectado?" },
         { command: "post", description: "Borrador de post para X" },
         { command: "radar", description: "Lo más caliente ahora para X" },
         { command: "cita", description: "Borrador para citar el N del radar" },
@@ -108,7 +112,8 @@ async function handleMessage(msg, env) {
         "/semana — huecos libres de 7 días\n/lista — tareas pendientes\n" +
         "/planificar — coloca las tareas que aún no tienen hueco\n" +
         "/resumen — tu semana: commits, tareas, clases y borrador de post\n" +
-        "/acceso — enlace de un solo uso para entrar al panel sin passkey\n\n" +
+        "/acceso — enlace de un solo uso para entrar al panel sin passkey\n" +
+        "/salud — comprueba que todo lo conectado funciona\n\n" +
         "𝕏 Para X (no publico nada: te aviso cuando hay tema y escribo borradores):\n" +
         "/post idea → dos versiones de un post\n/radar → lo más caliente ahora\n" +
         "/cita N → comentario para citar el N del radar\n/guardar N → para un hilo · /hilo → escribirlo",
@@ -161,6 +166,11 @@ async function handleMessage(msg, env) {
     }
     await tg(env, "sendChatAction", { chat_id: chatId, action: "typing" });
     await buildWeekly(env);
+    return;
+  }
+  if (text === "/salud") {
+    await tg(env, "sendChatAction", { chat_id: chatId, action: "typing" });
+    await tg(env, "sendMessage", { chat_id: chatId, text: (await healthReport(env)).slice(0, 4000), link_preview_options: { is_disabled: true } });
     return;
   }
   if (text === "/planificar") {
@@ -362,6 +372,8 @@ async function handleCallback(cb, env) {
     return;
   }
   if (action.startsWith("x")) return socialCallback(env, cb, action, id);
+  if (action === "ma" || action === "mx") return mailCallback(env, cb, action, idStr);
+  if (["cd", "cm", "ca", "ck"].includes(action)) return eveningCallback(env, cb, action, idStr);
   let notice = "";
 
   if (action === "done") {

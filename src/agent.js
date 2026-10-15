@@ -177,6 +177,13 @@ async function dayClashes(env, id, date) {
   return [...key, ...(classes ? [`${classes} clase${classes > 1 ? "s" : ""}`] : []), ...routine];
 }
 
+// Una herramienta del asistente lanzada desde fuera (p. ej. el botón «Apuntar» de un correo).
+export async function applyTool(env, name, args) {
+  const run = newRun();
+  const result = await HANDLERS[name](env, args, { now: nowMadrid(), run });
+  return { result, run };
+}
+
 const HANDLERS = {
   async ver_agenda(env, a, { now }) {
     let from = okDate(a.desde) || now.date;

@@ -33,6 +33,9 @@ Without being asked, it also:
 - **Re-reads the university timetable every 3 h** and reports room changes and added or cancelled sessions (UC3M).
 - **Sends a morning briefing at 7:45** with the day's classes, events, overdue tasks and free slots.
 - **Publishes calendar feeds** (classes, labs and deadlines, exams, routine, tasks) that Apple or Google Calendar subscribe to.
+- **Closes the day at 22:45**: whatever was left pending (overdue tasks, today's unfinished blocks) comes with buttons to mark it done or push it to tomorrow, one by one or all at once.
+- **Reads your email** (optional): your accounts forward to an address of yours that the Worker receives. Newsletters are dropped without AI, and the model is told to be very selective. It only messages you when an email asks you to do something or brings a date, with a button to add it. Nothing is added unless you tap.
+- **Checks its own health every night**: Telegram webhook, Groq, Notion, the message queue and Jarvis (GitHub token, Modal, the calling account's session). It only writes if something broke, and says how to fix it. `/salud` runs it on demand.
 - **Sends a weekly summary on Sundays**: your commits and your organisations', tasks closed, hours of class and a "build in public" draft.
 - **Nudges you when there is something worth posting on X** (optional). It reads official AI blogs, Hacker News, GitHub Trending and Product Hunt, scores how hot each topic is across sources and writes drafts in your voice. It never posts anything itself.
 
@@ -54,6 +57,9 @@ Everything personal lives in an untracked `config.js` ([template](config.example
 | X assistant (`social`) | Nothing | Sources, cadence and your voice are in the config |
 | Notion (`notion`) | `NOTION_TOKEN` (internal connection or personal token) | A team or club workspace: dated events → calendar feed and agenda, tasks assigned to you → tasks, and the assistant searches and reads its pages. Read-only |
 | Website inbox (`panel.inbox`) | Another Worker of yours | Contact-form messages and bookings pushed over a service binding ([contract](src/inbox.js)) |
+| Email (`mail`) | Cloudflare Email Routing on your domain (free) | Gmail or your university account forward to `mail.address`; only mail forwarded by `mail.forwarders` is accepted. The email itself is not stored |
+| Jarvis (`jarvis`) | A second Telegram account, a private GitHub repo, optional Modal | Calls you at wake-up time or on `/llamame` and talks: asks, answers and adds things with the assistant's tools ([jarvis/](jarvis/)) |
+| Health check (`health`), day close (`evening`) | Nothing | On by default; set to `null` to turn off |
 | Faster model (Groq) | Optional `GROQ_API_KEY` (free) | Same model; otherwise Workers AI |
 
 ## Architecture
