@@ -36,9 +36,11 @@ call_image = (
     .add_local_file(os.path.join(HERE, "conversation.py"), "/root/conversation.py")
 )
 
-# Efecto de asistente: algo de brillo y un eco corto, metálico.
-FX = "highpass=f=90,equalizer=f=3500:t=q:w=1.2:g=3,aecho=0.8:0.6:18|36:0.25|0.15,volume=1.1"
-SPEED = 0.96  # algo pausado, estilo mayordomo
+# Sonido para teléfono: sin graves que emborronan, consonantes realzadas (2,8 kHz), compresión suave y volumen
+# normalizado a -14 LUFS (como un podcast). Sin eco: por teléfono empasta las palabras.
+FX = "highpass=f=130,equalizer=f=250:t=q:w=1:g=-3,equalizer=f=2800:t=q:w=1.2:g=4,acompressor=threshold=-20dB:ratio=3:attack=5:release=80:makeup=2,loudnorm=I=-14:TP=-1:LRA=7"
+SPEED = 1.0
+STEPS = 16  # pasos de cálculo por frase (32 por defecto): la mitad de tiempo y casi la misma calidad
 
 
 def chunks(text, limit=260):
@@ -62,8 +64,13 @@ class Voice:
         import torch
         from omnivoice import OmniVoice
 
+        from omnivoice.models.omnivoice import OmniVoiceGenerationConfig
+
         self.model = OmniVoice.from_pretrained("k2-fsa/OmniVoice", device_map="cuda", dtype=torch.float16)
-        self.ref_text = open("/vol/voz/ref.txt").read().strip()
+        # La voz de referencia se analiza una vez, no en cada frase.
+        self.prompt = self.model.create_voice_clone_prompt("/vol/voz/ref.wav", open("/vol/voz/ref.txt").read().strip())
+        self.config = OmniVoiceGenerationConfig(num_step=STEPS)
+        self.model.generate(text="Hola.", language="es", voice_clone_prompt=self.prompt, generation_config=self.config)  # calentar
         vol.commit()  # guarda el modelo descargado para la próxima vez
 
     @modal.method()
@@ -76,7 +83,7 @@ class Voice:
         pause = np.zeros(int(24000 * 0.25), dtype=np.float32)
         for i, piece in enumerate(chunks(text)):
             torch.manual_seed(11 + i)
-            audio = self.model.generate(text=piece, language="es", ref_audio="/vol/voz/ref.wav", ref_text=self.ref_text, speed=SPEED)
+            audio = self.model.generate(text=piece, language="es", voice_clone_prompt=self.prompt, generation_config=self.config, speed=SPEED)
             parts += [np.asarray(audio[0], dtype=np.float32), pause]
         sf.write("/tmp/raw.wav", np.concatenate(parts), 24000)
         # Medio segundo de silencio al principio: al descolgar se pierde el comienzo del audio.
@@ -158,9 +165,15 @@ def turno(audio_wav: bytes) -> dict:
     os.environ.setdefault("JOB", "test")
     import call as caller
 
+    import time
+
+    t0 = time.time()
     res = caller.taskbot("POST", {"test": True, "audio": base64.b64encode(audio_wav).decode()}, "/turn")
+    res["t_taskbot"] = round(time.time() - t0, 1)
     if res.get("reply"):
+        t1 = time.time()
         res["mp3"] = Voice().speak.remote(res["reply"], 0)
+        res["t_voz"] = round(time.time() - t1, 1)
     return res
 
 

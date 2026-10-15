@@ -5,7 +5,14 @@
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 // En el plan gratuito cada modelo tiene su propio cupo (8.000 tokens/min): si uno se agota, se pasa al otro.
-const GROQ_MODELS = { smart: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"], fast: ["openai/gpt-oss-20b", "openai/gpt-oss-120b"] };
+const GROQ_MODELS = {
+  smart: ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"],
+  fast: ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"],
+};
+// Qwen no entiende el nivel de razonamiento de gpt-oss: se le apaga y se le esconde el razonamiento.
+const forModel = (model, body) => (model.startsWith("qwen/")
+  ? (({ reasoning_effort, ...rest }) => ({ ...rest, reasoning_effort: "none", reasoning_format: "hidden" }))(body)
+  : body);
 const CF_MODEL = "@cf/openai/gpt-oss-120b";
 const TIMEOUT_MS = 45000;
 
@@ -48,7 +55,8 @@ async function groq(env, model, body) {
  * (content + tool_calls). Lanza si fallan los dos proveedores.
  */
 // `prefer`: "smart" (Telegram: el modelo grande primero) o "fast" (llamada de voz: el pequeño, más rápido, primero).
-export async function chat(env, { messages, tools, effort = "medium", maxTokens = 4000, prefer = "smart" }) {
+// `slowFallback`: si Groq falla, probar Workers AI (tarda 5–20 s). En una llamada de voz es mejor fallar rápido.
+export async function chat(env, { messages, tools, effort = "medium", maxTokens = 4000, prefer = "smart", slowFallback = true }) {
   const body = { messages, max_tokens: maxTokens, reasoning_effort: effort };
   if (tools?.length) Object.assign(body, { tools, tool_choice: "auto" });
 
@@ -56,7 +64,7 @@ export async function chat(env, { messages, tools, effort = "medium", maxTokens 
   if (env.GROQ_API_KEY) {
     for (const model of GROQ_MODELS[prefer] || GROQ_MODELS.smart) {
       try {
-        const j = await groq(env, model, body);
+        const j = await groq(env, model, forModel(model, body));
         console.log(`[llm] groq ${model} ${j.usage?.prompt_tokens} in / ${j.usage?.completion_tokens} out · caché ${j.usage?.prompt_tokens_details?.cached_tokens ?? 0}`);
         return { message: cleanMessage(j.choices?.[0]?.message), provider: "groq", usage: j.usage };
       } catch (e) {
@@ -65,6 +73,7 @@ export async function chat(env, { messages, tools, effort = "medium", maxTokens 
       }
     }
   }
+  if (!slowFallback) throw new Error(`sin modelo rápido disponible: ${errors.join(" | ")}`);
   try {
     const j = await env.AI.run(CF_MODEL, body);
     const m = j?.choices?.[0]?.message;

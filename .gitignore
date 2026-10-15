@@ -23,3 +23,6 @@ macos-widget/TaskbotWidget.xcodeproj/
 
 # Notas privadas para Claude Code
 CLAUDE.local.md
+
+__pycache__/
+*.pyc

@@ -41,6 +41,33 @@ def to_pcm(mp3: bytes) -> bytes:
                           input=mp3, capture_output=True, check=True).stdout
 
 
+def sentences(text: str):
+    """Frases (las muy cortas se juntan con la siguiente): se dice la primera mientras se genera la segunda."""
+    import re
+
+    out = []
+    for s in re.split(r"(?<=[.!?¿¡…])\s+", text.strip()):
+        if out and len(out[-1]) < 40:
+            out[-1] = f"{out[-1]} {s}"
+        elif s:
+            out.append(s)
+    return out or [text]
+
+
+async def say_text(pump, speak, text, wait_before=None):
+    """Genera y dice `text` frase a frase: la primera suena en cuanto está, las demás se generan mientras."""
+    parts = sentences(text)
+    nxt = asyncio.create_task(asyncio.to_thread(speak, parts[0], 0))
+    for i in range(len(parts)):
+        pcm = to_pcm(await nxt)
+        if i + 1 < len(parts):
+            nxt = asyncio.create_task(asyncio.to_thread(speak, parts[i + 1], 0))
+        if i == 0 and wait_before:
+            await wait_before()  # p. ej. que acabe el "un momento"
+        pump.say(pcm)
+    await pump.done()
+
+
 def to_wav(pcm: bytes) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
@@ -230,10 +257,7 @@ async def converse(client, target, wake_at, opening: str, job: str, speak, taskb
         reply = (res or {}).get("reply")
         if not reply:
             continue  # ruido o nada que entender
-        audio = to_pcm(await asyncio.to_thread(speak, reply, 0))
-        await pump.done()  # que acabe el "un momento"
-        pump.say(audio)
-        await pump.done()
+        await say_text(pump, speak, reply, wait_before=pump.done)
         if res.get("end"):
             break
 

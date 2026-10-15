@@ -11,6 +11,7 @@ import { agendaData, nowMadrid, addDays, dayLabel } from "./brain.js";
 import { chat } from "./llm.js";
 import { tg } from "./telegram.js";
 import { cachedEvents } from "./notion.js";
+import { classPlans } from "./aulaglobal.js";
 import { transcribe } from "./classify.js";
 import { agent } from "./agent.js";
 
@@ -101,6 +102,14 @@ export async function dayFacts(env, date) {
     weather(),
     radar(env).catch(() => []),
   ]);
+  // Lo que toca en cada clase de hoy y mañana, del calendario del profe en Moodle (unas líneas, no el PDF).
+  const tomorrowAgenda = await agendaData(env, tomorrow);
+  const subjectsOf = (ag) => [...new Set(ag.blocks.filter((b) => b.label.startsWith("📚")).map((b) => b.label.replace(/^📚\s*/, "").split(" · ")[0]))];
+  const [plansToday, plansTomorrow] = await Promise.all([
+    classPlans(env, subjectsOf(agenda), [date]).catch(() => ({})),
+    classPlans(env, subjectsOf(tomorrowAgenda), [tomorrow]).catch(() => ({})),
+  ]);
+  const planLines = (plans, label) => Object.entries(plans).map(([sub, rows]) => `- ${label} · ${sub}: ${rows.join(" | ")}`);
   const notionSoon = (await cachedEvents(env)).filter((e) => e.date > date && e.date <= soon).map((e) => `${e.title} (${dayLabel(e.date)})`);
   const lines = [
     `HOY ${dayLabel(date)}:`,
@@ -108,6 +117,8 @@ export async function dayFacts(env, date) {
     agenda.free.length ? `Huecos libres: ${agenda.free.map((f) => `${f.start}-${f.end}`).join(", ")}` : "Sin huecos libres.",
     "TAREAS:",
     ...tasks.results.map((t) => `- ${t.text}${t.due_date ? ` · vence ${t.due_date < date ? `${t.due_date} (ATRASADA)` : t.due_date === date ? "HOY" : t.due_date === tomorrow ? "mañana" : dayLabel(t.due_date)}` : ""}${t.start_at?.startsWith(date) ? ` · bloque hoy ${t.start_at.slice(11, 16)}` : ""}`),
+    ...(Object.keys(plansToday).length || Object.keys(plansTomorrow).length
+      ? ["QUÉ TOCA EN CLASE (calendario del profe):", ...planLines(plansToday, "hoy"), ...planLines(plansTomorrow, "mañana")] : []),
     "ENTREGAS DE LA UNI (3 días):",
     ...aula.results.map((a) => `- ${a.text} · cierra ${dayLabel(a.due_at.slice(0, 10))} ${a.due_at.slice(11)}`),
     notionSoon.length ? `PRÓXIMOS EVENTOS (${config.notion?.name || "Notion"}): ${notionSoon.join("; ")}` : "",

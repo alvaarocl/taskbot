@@ -50,7 +50,7 @@ CÓMO TRABAJAS
 - Si una entrega se hace DURANTE un evento (p. ej. el proyecto de una hackathon) o es solo una fecha límite que no necesita tiempo aparte, crear_tarea con sin_hueco=true: queda la fecha límite y no se le reserva tiempo.
 - Entregas y prácticas de la uni: categoria "uni" y el título con la asignatura: "Entregar: práctica 2 · Nombre de la asignatura".
 - Preguntas sobre su agenda, huecos, clases o exámenes: usa ver_agenda (y aula_global para avisos y notas de los profesores en ${moodle}) y responde con las horas EXACTAMENTE como salen.
-- Preguntas sobre el CONTENIDO de una asignatura ("¿qué vamos a hacer mañana en IS?", "¿qué toca en la práctica?", "¿de qué va el tema 3?", "¿qué hay que preparar para la sesión extra?"): llama SIEMPRE a las dos herramientas, ver_agenda (qué sesiones tiene ese día: tipo, hora y aula) y aula_asignatura (qué dice ${moodle} de esa semana o sesión: la planificación del profe si la hay —el calendario con lo que toca cada día—, actividades, instrucciones y avisos). Busca en la planificación la fila de esa fecha. Responde en cuatro o cinco líneas con lo que toca, citando lo que pone ${moodle}. Si no dice nada concreto de ese día, dilo y cuéntale lo más cercano (la semana o el tema en curso). No hables de otras asignaturas ni del resto del día salvo que pregunte.
+- Preguntas sobre el CONTENIDO de una asignatura ("¿qué vamos a hacer mañana en IS?", "¿qué toca en la práctica?", "¿de qué va el tema 3?", "¿qué hay que preparar para la sesión extra?"): primero mira si ya está en los DATOS DE HOY (lo que toca en clase hoy y mañana); si no, llama a ver_agenda (qué sesiones tiene ese día: tipo, hora y aula) y a aula_asignatura CON la fecha (qué dice ${moodle} de esa semana o sesión: la planificación del profe si la hay —el calendario con lo que toca cada día—, actividades, instrucciones y avisos). Busca en la planificación la fila de esa fecha. Responde en cuatro o cinco líneas con lo que toca, citando lo que pone ${moodle}. Si no dice nada concreto de ese día, dilo y cuéntale lo más cercano (la semana o el tema en curso). No hables de otras asignaturas ni del resto del día salvo que pregunte.
 - Cambiar, mover, marcar hecho o borrar algo que ya existe: usa su id de la lista. Para borrar, llama a borrar directamente (una vez por elemento; los días de una serie se borran juntos): eso ya le pone un botón de confirmación, así que NO le preguntes antes por texto.
 ${config.notion ? `- ${config.notion.name} vive en Notion. Sus eventos ya salen en la agenda con 🚀. Para cualquier otra cosa de ${config.notion.name} (un proyecto, quién lleva qué, un proceso, un acta, el detalle de un evento) usa notion_buscar y cita la página.\n` : ""}${config.jarvis ? "- \"Despiértame mañana a las 8\", \"llámame a las 7:30 los días de diario\", \"mañana no me despiertes\": usa despertador. A esa hora Jarvis le llama por Telegram y le cuenta el día (agenda, tareas, entregas, tiempo y noticias).\n" : ""}- Si solo charla o pregunta algo general, contesta sin herramientas.
 
@@ -91,7 +91,7 @@ const TOOLS = [
     { desde: S("YYYY-MM-DD"), hasta: S("YYYY-MM-DD") }, ["desde", "hasta"]),
   fn("aula_global", "Avisos recientes de los profesores y notas publicadas en el Moodle de la uni.", {}),
   fn("aula_asignatura", "Contenido de una asignatura en el Moodle de la uni (planificación de sesiones del profe incluida): temas o semanas, sesiones, prácticas, actividades con fechas, instrucciones del profesor y sus avisos recientes.",
-    { asignatura: S("Nombre o alias, p. ej. 'Ingeniería del Software' o 'IS'") }, ["asignatura"]),
+    { asignatura: S("Nombre o alias, p. ej. 'Ingeniería del Software' o 'IS'"), fecha: S("YYYY-MM-DD si pregunta por un día concreto: devuelve solo lo de ese día (más rápido)") }, ["asignatura"]),
   ...(config.notion ? [fn("notion_buscar", `Busca en el Notion de ${config.notion.name} y lee las páginas que encaje: eventos, proyectos, tareas, actas, procesos, contactos.`,
     { consulta: S("Palabras clave, p. ej. 'jornada del sábado', 'formación', 'acta reunión'") }, ["consulta"])] : []),
   ...(config.jarvis ? [fn("despertador", "Jarvis le llama por Telegram a esa hora y le cuenta el día. Para un día concreto (fecha) o fijo para días de la semana (dias: 1=lunes … 7=domingo). quitar=true para anularlo. Sin fecha ni dias: solo consulta.", {
@@ -200,7 +200,7 @@ const HANDLERS = {
   },
 
   async aula_asignatura(env, a) {
-    return courseOutline(env, String(a.asignatura || ""));
+    return courseOutline(env, String(a.asignatura || ""), okDate(a.fecha));
   },
 
   async aula_global(env) {
@@ -376,10 +376,22 @@ export async function undoBatch(env, key) {
 
 // ---------- bucle ----------
 
-// Llamada de Jarvis: lo que escribe se convierte en voz.
+// Llamada de Jarvis: instrucciones compactas y menos herramientas (el cupo gratuito de Groq va por tokens/minuto).
+const VOICE_TOOLS_NAMES = new Set(["ver_agenda", "aula_asignatura", "notion_buscar", "crear_evento", "crear_tarea", "editar", "marcar_hecho", "borrar", "despertador"]);
+const VOICE_TOOLS = TOOLS.filter((t) => VOICE_TOOLS_NAMES.has(t.function.name));
+
+function voicePrompt() {
+  const me = config.assistant || {};
+  return `Eres Jarvis, el mayordomo digital de ${me.name || "tu usuario"}${me.about ? ` (${me.about})` : ""}, y estás hablando con él por teléfono: lo que escribas se convierte en voz. Español de España.
+- Para apuntar, cambiar o consultar usa las herramientas; nunca digas que algo está hecho si la herramienta no lo ha confirmado.
+- Fechas: usa el calendario resuelto de abajo ("el viernes" = el próximo viernes de la lista). Formato YYYY-MM-DD y HH:MM, hora de Madrid. "Por la mañana" es antes de las 14:00 y "por la tarde", de 14:00 a 21:00.
+- Si falta un dato imprescindible o lo que oyes no tiene sentido (viene de un reconocimiento de voz), pregunta.
+- Lo que toca en clase hoy y mañana ya está en DATOS DE HOY; para otros días, aula_asignatura con la fecha.`;
+}
+
 const VOICE_PROMPT = `MODO LLAMADA: estás hablando por teléfono con él y lo que escribas se convierte en voz.
 - Responde en una a tres frases cortas y naturales. Nada de listas, emojis, símbolos, URLs ni markdown; horas en palabras ("a las cinco y media").
-- Trátale de usted y llámale "señor": sereno, elegante y con algún toque de ironía amable (sin abusar).
+- Trátale de usted y llámale "señor": sereno, elegante y con algún toque de ironía amable (sin abusar). Habla de lo que tiene ÉL ("tiene", "le toca"), nunca en primera persona del plural.
 - Si te pide algo, usa las herramientas igual que siempre y confírmalo en una frase ("Hecho, señor: se lo he puesto el jueves a las cinco").
 - Pregunta en vez de soltar parrafadas: da lo más importante y ofrece seguir ("¿Quiere que le cuente también las entregas?").
 - Lo que oyes viene de un reconocimiento de voz: si algo no tiene sentido o falta un dato, pídele que lo repita o pregunta.
@@ -406,10 +418,10 @@ export async function agent(env, chatId, text, { queued = false, voice = null } 
   }
 
   const messages = [
-    { role: "system", content: stablePrompt() },
+    { role: "system", content: voice ? voicePrompt() : stablePrompt() },
     { role: "system", content: voice ? `${todayLine(now)}\n\nLO QUE TIENE GUARDADO (próximos 7 días):\n${items.map(describe).join("\n") || "(nada)"}` : await contextPrompt(env, now, items) },
     ...(voice ? [{ role: "system", content: `${VOICE_PROMPT}${voice.facts ? `\n\nDATOS DE HOY:\n${voice.facts}` : ""}` }] : []),
-    ...(voice ? history.slice(-6) : history),
+    ...(voice ? history.slice(-4) : history),
     { role: "user", content: text.slice(0, MAX_INPUT) },
   ];
   const run = newRun();
@@ -417,7 +429,7 @@ export async function agent(env, chatId, text, { queued = false, voice = null } 
 
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      const { message } = await chat(env, { messages, tools: TOOLS, effort: voice ? "low" : "medium" });
+      const { message } = await chat(env, { messages, tools: voice ? VOICE_TOOLS : TOOLS, effort: voice ? "low" : "medium", slowFallback: !voice });
       messages.push(message);
       if (!message.tool_calls?.length) {
         reply = message.content.trim();

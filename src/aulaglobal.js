@@ -282,20 +282,88 @@ async function readPlan(env, mod, file) {
   }
 }
 
-export async function courseOutline(env, query) {
-  const ag = await connect(env);
-  if (!ag) return { error: `${NAME} no está conectado (falta el token o ha caducado).` };
+function findCourse(ag, query) {
   const wanted = norm(subjectOf(query) || query);
   const words = wanted.split(" ").filter((w) => w.length > 2);
   const scored = ag.courses.map((c) => {
     const n = norm(shortName(c));
     return { c, score: n.includes(wanted) ? 100 : words.filter((w) => n.includes(w)).length };
   }).sort((a, b) => b.score - a.score);
-  if (!scored.length || !scored[0].score) {
-    return { error: `No encuentro esa asignatura. Las de este curso son: ${ag.courses.map(shortName).join(", ")}.` };
+  return scored[0]?.score ? scored[0].c : null;
+}
+
+async function coursePlans(env, sections) {
+  const plans = [];
+  for (const sec of sections) for (const m of sec.modules || []) {
+    if (plans.length >= 2 || m.modname !== "resource" || m.uservisible === false) continue;
+    const file = (m.contents || []).find((f) => f.type === "file" && /pdf|word|officedocument|text/.test(f.mimetype || "pdf"));
+    if (file && (PLAN.test(m.name) || PLAN.test(file.filename))) {
+      const texto = await readPlan(env, m, file);
+      if (texto) plans.push({ documento: fixName(m.name), texto });
+    }
   }
-  const course = scored[0].c;
+  return plans;
+}
+
+const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+/** Filas del calendario del profe para unas fechas (YYYY-MM-DD). El PDF a veces junta varias filas en una
+ *  línea, así que se corta por cada fecha dd/mm(/aaaa) que aparece y se quedan los trozos de esas fechas. */
+export function planRows(text, dates) {
+  const keys = dates.map((d) => { const [y, m, dd] = d.split("-"); return { dd: +dd, m: +m, word: `${+dd} de ${MONTHS[+m - 1]}` }; });
+  const out = [];
+  // Solo fechas con barra (15/10, 15/10/2026): con punto se confundirían con aulas como "2.3.B05".
+  const parts = String(text).split(/(?=\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b)/);
+  for (const p of parts) {
+    const m = p.match(/^(\d{1,2})\/(\d{1,2})/);
+    if (m && keys.some((k) => k.dd === +m[1] && k.m === +m[2])) out.push(p.replace(/\s+/g, " ").trim().slice(0, 300));
+  }
+  for (const line of String(text).split("\n")) {
+    if (keys.some((k) => norm(line).includes(norm(k.word)))) out.push(line.trim().slice(0, 300));
+  }
+  return [...new Set(out)].slice(0, 8);
+}
+
+// Lo que toca en clase de varias asignaturas en unas fechas (para el resumen del día y la llamada). En KV 6 h.
+export async function classPlans(env, subjects, dates) {
+  const key = `ag:plan:${dates.join(",")}:${norm(subjects.join("|")).slice(0, 120)}`;
+  const cached = await readJSON(env, key);
+  if (cached) return cached;
+  const ag = await connect(env);
+  if (!ag) return {};
+  const out = {};
+  for (const sub of subjects) {
+    const course = findCourse(ag, sub);
+    if (!course) continue;
+    try {
+      const sections = await call(env, "core_course_get_contents", { courseid: String(course.id) });
+      const rows = (await coursePlans(env, sections)).flatMap((p) => planRows(p.texto, dates));
+      if (rows.length) out[sub] = rows;
+    } catch (e) {
+      console.error("classPlans", sub, e?.message || e);
+    }
+  }
+  await env.FILES.put(key, JSON.stringify(out), { expirationTtl: 6 * 3600 });
+  return out;
+}
+
+// `fecha` (YYYY-MM-DD): solo lo de ese día (y los 3 siguientes) del calendario del profe: respuesta corta y rápida.
+export async function courseOutline(env, query, fecha = null) {
+  const ag = await connect(env);
+  if (!ag) return { error: `${NAME} no está conectado (falta el token o ha caducado).` };
+  const course = findCourse(ag, query);
+  if (!course) return { error: `No encuentro esa asignatura. Las de este curso son: ${ag.courses.map(shortName).join(", ")}.` };
   const sections = await call(env, "core_course_get_contents", { courseid: String(course.id) });
+  const plans = await coursePlans(env, sections);
+  const avisos = ((await readJSON(env, K.avisos)) || [])
+    .filter((a) => a.course === shortName(course)).slice(0, 3)
+    .map((a) => `${a.at} · ${a.title}: ${a.body.slice(0, 300)}`);
+
+  if (fecha) {
+    const dates = [0, 1, 2, 3].map((n) => new Date(Date.parse(fecha + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10));
+    const rows = plans.flatMap((p) => planRows(p.texto, dates));
+    if (rows.length) return { asignatura: shortName(course), fecha, calendario_del_profe: rows, avisos_recientes: avisos };
+  }
 
   const when = (ts) => { const m = madrid(ts); return `${dayLabel(m.date)} ${m.time}`; };
   const parts = [];
@@ -317,23 +385,12 @@ export async function courseOutline(env, query) {
     }
     if (lines.length) parts.push(`## ${strip(sec.name) || "General"}\n${lines.join("\n").slice(0, MAX_SECTION)}`);
   }
-  const plans = [];
-  for (const sec of sections) for (const m of sec.modules || []) {
-    if (plans.length >= 2 || m.modname !== "resource" || m.uservisible === false) continue;
-    const file = (m.contents || []).find((f) => f.type === "file" && /pdf|word|officedocument|text/.test(f.mimetype || "pdf"));
-    if (file && (PLAN.test(m.name) || PLAN.test(file.filename))) {
-      const texto = await readPlan(env, m, file);
-      if (texto) plans.push({ documento: fixName(m.name), texto });
-    }
-  }
-  const avisos = ((await readJSON(env, K.avisos)) || [])
-    .filter((a) => a.course === shortName(course)).slice(0, 5)
-    .map((a) => `${a.at} · ${a.title}: ${a.body.slice(0, 400)}`);
   let contenido = parts.join("\n\n");
-  if (contenido.length > MAX_OUTLINE) contenido = `${contenido.slice(0, MAX_OUTLINE)}\n…(recortado)`;
+  const limit = fecha ? 3000 : MAX_OUTLINE;
+  if (contenido.length > limit) contenido = `${contenido.slice(0, limit)}\n…(recortado)`;
   return {
     asignatura: shortName(course), hoy: nowMadrid().date,
-    planificacion: plans, // el calendario de sesiones del profe, si lo hay: es lo más fiable para "qué toca el día X"
+    planificacion: fecha ? [] : plans, // sin fecha: el calendario entero del profe
     contenido: contenido || "(la asignatura no tiene contenido visible)", avisos_recientes: avisos,
   };
 }
