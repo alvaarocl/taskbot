@@ -28,7 +28,7 @@ export async function runReminders(env) {
     const overdue = due.results.filter((i) => i.due_date < today);
     const dueToday = due.results.filter((i) => i.due_date === today);
     const dueTomorrow = due.results.filter((i) => i.due_date === tomorrow);
-    const fmt = (i) => `• #${i.id} ${i.text}${i.category ? ` [${i.category}]` : ""}`;
+    const fmt = (i) => `• ${i.text}${i.category ? ` [${i.category}]` : ""}`;
 
     const blocks = agenda ? [agenda] : [];
     if (overdue.length) blocks.push("⚠️ Atrasadas:\n" + overdue.map(fmt).join("\n"));
@@ -52,7 +52,7 @@ export async function runReminders(env) {
   ).all();
 
   if (stale.results.length) {
-    const lines = stale.results.map((i) => `• #${i.id} ${i.text}${i.category ? ` [${i.category}]` : ""}`);
+    const lines = stale.results.map((i) => `• ${i.text}${i.category ? ` [${i.category}]` : ""}`);
     await tg(env, "sendMessage", {
       chat_id: chatId,
       text: ("🕸 Llevan más de 2 semanas esperando:\n\n" + lines.join("\n") +
@@ -78,7 +78,7 @@ async function askPendingTimes(env, chatId, today) {
     const key = `asktbc:${ev.series || ev.id}`;
     if (await env.FILES.get(key)) continue;
     const when = ev.first === ev.last ? dayLabel(ev.first) : `${dayLabel(ev.first)} – ${dayLabel(ev.last)}`;
-    const text = `🕐 «${ev.text}» (${when}) sigue sin horario. ¿Ya lo sabes? Dímelo (p. ej. "de 9 a 20, el último día hasta las 14") y lo pongo en el calendario. (#${ev.id})`;
+    const text = `🕐 «${ev.text}» (${when}) sigue sin horario. ¿Ya lo sabes? Dímelo (p. ej. "de 9 a 20, el último día hasta las 14") y lo pongo en el calendario. `;
     await tg(env, "sendMessage", { chat_id: chatId, text });
     await rememberAssistant(env, text);
     await env.FILES.put(key, "1", { expirationTtl: 2 * 86400 });

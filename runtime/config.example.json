@@ -1,0 +1,13 @@
+{
+  "worker_url": "https://taskbot.example.workers.dev",
+  "vault": "~/obsidian",
+  "state_dir": "~/.local/share/taskbot",
+  "read_paths": ["WEB", "_Sistema", "_Jarvis"],
+  "write_paths": ["_Jarvis"],
+  "voice": {
+    "enabled": false,
+    "owner_id": "YOUR_TELEGRAM_USER_ID",
+    "voice": "es-ES-AlvaroNeural",
+    "max_minutes": 12
+  }
+}

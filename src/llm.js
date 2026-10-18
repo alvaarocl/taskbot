@@ -33,9 +33,9 @@ export function cleanMessage(m) {
   return out;
 }
 
-async function groq(env, model, body) {
+async function groq(env, model, body, timeoutMs = TIMEOUT_MS) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(GROQ_URL, {
       method: "POST",
@@ -62,11 +62,11 @@ export async function chat(env, { messages, tools, effort = "medium", maxTokens 
 
   const errors = [];
   if (env.GROQ_API_KEY) {
-    for (const model of GROQ_MODELS[prefer] || GROQ_MODELS.smart) {
+    for (const model of (GROQ_MODELS[prefer] || GROQ_MODELS.smart).slice(0, prefer === "fast" ? 2 : 3)) {
       try {
-        const j = await groq(env, model, forModel(model, body));
+        const j = await groq(env, model, forModel(model, body), prefer === "fast" ? 6000 : TIMEOUT_MS);
         console.log(`[llm] groq ${model} ${j.usage?.prompt_tokens} in / ${j.usage?.completion_tokens} out · caché ${j.usage?.prompt_tokens_details?.cached_tokens ?? 0}`);
-        return { message: cleanMessage(j.choices?.[0]?.message), provider: "groq", usage: j.usage };
+        return { message: cleanMessage(j.choices?.[0]?.message), provider: "groq", model, usage: j.usage };
       } catch (e) {
         errors.push(String(e?.message || e).slice(0, 160));
         console.warn(`llm groq ${model} →`, errors.at(-1));
@@ -79,7 +79,7 @@ export async function chat(env, { messages, tools, effort = "medium", maxTokens 
     const m = j?.choices?.[0]?.message;
     if (!m) throw new Error("Workers AI sin respuesta");
     console.log(`[llm] workers-ai ${j.usage?.prompt_tokens} in / ${j.usage?.completion_tokens} out · ${Math.round(j.usage?.neurons || 0)} neuronas`);
-    return { message: cleanMessage(m), provider: "workers-ai", usage: j.usage };
+    return { message: cleanMessage(m), provider: "workers-ai", model: CF_MODEL, usage: j.usage };
   } catch (e) {
     errors.push(String(e?.message || e));
   }

@@ -34,6 +34,7 @@ export async function handleInbox(request, env) {
   }
   if (!KINDS.includes(b.kind)) return json({ error: "invalid" }, 400);
 
+  if (b.kind === 'reunion' && (!iso(b.start) || !iso(b.end) || Date.parse(b.end) <= Date.parse(b.start))) return json({error:'invalid interval'},400);
   await env.DB.prepare(
     `INSERT INTO inbox (id, kind, name, topic, message, start_at, end_at, duration, meet)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

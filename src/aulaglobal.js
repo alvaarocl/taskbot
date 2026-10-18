@@ -11,7 +11,7 @@
 // Lo último de avisos y notas se guarda en KV para que el asistente pueda responder sobre ello.
 
 import config from "../config.js";
-import { tg, itemKeyboard } from "./telegram.js";
+import { tg, itemKeyboard, placeTask } from "./telegram.js";
 import { dayLabel, nowMadrid } from "./brain.js";
 import { subjectOf } from "./subjects.js";
 
@@ -67,7 +67,7 @@ async function connect(env) {
 
 export async function syncAulaGlobal(env) {
   const ag = await connect(env);
-  if (!ag) return;
+  if (!ag) { if(SITE && env.AULAGLOBAL_TOKEN) throw new Error("Aula Global: acceso no disponible"); return; }
   await syncTasks(env, await pendingWork(env, ag));
   await remindDeadlines(env);
   await notifyForums(env, ag);
@@ -75,7 +75,7 @@ export async function syncAulaGlobal(env) {
 
 export async function syncAulaMaterial(env) {
   const ag = await connect(env);
-  if (!ag) return;
+  if (!ag) { if(SITE && env.AULAGLOBAL_TOKEN) throw new Error("Aula Global: acceso no disponible"); return; }
   await notifyNewMaterial(env, ag);
   await notifyGrades(env, ag);
 }
@@ -112,7 +112,7 @@ function taskLabel(w) {
   return `${w.quiz ? "Cuestionario" : "Entregar"}: ${what} · ${w.course}`;
 }
 
-async function syncTasks(env, pending) {
+export async function syncTasks(env, pending) {
   const today = nowMadrid().date;
   for (const w of pending) {
     const { date: dueDate, time: dueTime } = madrid(w.due);
@@ -120,17 +120,20 @@ async function syncTasks(env, pending) {
     const item = await env.DB.prepare("SELECT * FROM items WHERE source=?").bind(w.source).first();
     const label = taskLabel(w);
     const when = `${dayLabel(dueDate)} ${dueTime}`;
-    const minutes = w.quiz ? 45 : 120;
+    const minutes = w.quiz ? 45 : 120; // estimación inicial, no dato oficial de Moodle
 
     if (!item) {
       if (w.done) continue; // ya entregado antes de conectar Moodle
       const late = dueDate < today;
       const res = await env.DB.prepare(
         `INSERT INTO items (kind, text, category, priority, due_date, due_at, duration_min, source, url)
-         VALUES ('tarea', ?, 'uni', ?, ?, ?, ?, ?, ?)`
+         VALUES ('tarea', ?, 'uni', ?, ?, ?, ?, ?, ?) ON CONFLICT(source) DO NOTHING`
       ).bind(label, late ? "urgente" : "normal", dueDate, dueAt, minutes, w.source, w.url).run();
+      if (!res.meta.changes) continue;
       const id = res.meta.last_row_id;
-      await say(env, `${late ? `⚠️ Sin entregar en ${NAME}` : `📌 Nueva en ${NAME}`}\n${label}\n📅 ${late ? "venció" : "vence"} el ${when}\n${w.url}`,
+      const fresh=await env.DB.prepare('SELECT * FROM items WHERE id=?').bind(id).first();
+      const planned=await placeTask(env,fresh);
+      await say(env, `${late ? `⚠️ Sin entregar en ${NAME}` : `📌 Nueva en ${NAME}`}\n${label}\n📅 ${late ? "venció" : "vence"} el ${when}\n${w.url}\nEstimación inicial: ${minutes} min.${planned}`,
         { reply_markup: itemKeyboard(id, "tarea") });
       continue;
     }
@@ -138,9 +141,12 @@ async function syncTasks(env, pending) {
     if (w.done && item.status === "pendiente") {
       await env.DB.prepare("UPDATE items SET status='hecha', done_at=datetime('now') WHERE id=?").bind(item.id).run();
       await say(env, `✅ Entregado en ${NAME}: ${w.name} · ${w.course}`);
-    } else if (!w.done && item.status === "pendiente" && item.due_at !== dueAt) {
-      await env.DB.prepare("UPDATE items SET due_date=?, due_at=? WHERE id=?").bind(dueDate, dueAt, item.id).run();
-      if (item.due_at) await say(env, `📅 Cambia la fecha en ${NAME}: ${label}\nAhora vence el ${when}`);
+    } else if (!w.done && (item.status !== "pendiente" || item.due_at !== dueAt || item.text !== label)) {
+      const reopened=item.status !== 'pendiente';
+      await env.DB.prepare("UPDATE items SET text=?,due_date=?,due_at=?,status='pendiente',done_at=NULL WHERE id=?").bind(label,dueDate,dueAt,item.id).run();
+      const fresh=await env.DB.prepare('SELECT * FROM items WHERE id=?').bind(item.id).first();
+      const planned=await placeTask(env,fresh);
+      await say(env, `${reopened?'📌 Vuelve a estar pendiente':'📅 Cambio'} en ${NAME}: ${label}\nVence el ${when}${planned}\n${w.url}`);
     }
   }
 }

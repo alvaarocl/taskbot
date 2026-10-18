@@ -219,7 +219,10 @@ async def converse(client, target, wake_at, opening: str, job: str, speak, taskb
             log("tu privacidad de Telegram no deja llamar a esta cuenta")
             report("privacy", attempt)
             return 3
-        except (TimedOutAnswer, CallDeclined, CallBusy, CallDiscarded) as e:
+        except CallDeclined:
+            report("declined", attempt)
+            return 2
+        except (TimedOutAnswer, CallBusy, CallDiscarded) as e:
             log(f"sin respuesta: {type(e).__name__}")
             if attempt < attempts:
                 await asyncio.sleep(retry_wait)

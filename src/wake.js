@@ -7,6 +7,7 @@
 //   - Al acabar, el workflow avisa en /api/jarvis (Bearer JARVIS_TOKEN): si no lo cogiste, el resumen te llega escrito.
 
 import config from "../config.js";
+import { submitRuntime, runtimeStatus } from "./runtime.js";
 import { agendaData, nowMadrid, addDays, dayLabel } from "./brain.js";
 import { chat } from "./llm.js";
 import { tg } from "./telegram.js";
@@ -25,7 +26,7 @@ const JOB = (id) => `wake:job:${id}`; // { text, target, voice, date }: el workf
 const DAY_NAMES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
 const cfg = () => config.jarvis || null;
-export const jarvisOn = (env) => !!(cfg() && env.JARVIS_GH_TOKEN);
+export const jarvisOn = (env) => !!((config.runtime?.voice && env.RUNTIME_TOKEN) || (cfg() && env.JARVIS_GH_TOKEN));
 
 const loadPlan = async (env) => (await env.FILES.get(PLAN, { type: "json" })) || { once: {}, daily: null };
 const savePlan = (env, plan) => env.FILES.put(PLAN, JSON.stringify(plan));
@@ -176,12 +177,19 @@ export async function buildBriefing(env, date, time, facts = null) {
 // Lanza la llamada: primero en Modal (voz natural, config.jarvis.modalUrl); si falla, en GitHub Actions
 // (voz de Edge) para que nunca te quedes sin despertador. El texto va en un encargo que el llamador pide a taskbot.
 async function dispatch(env, wakeAtIso, text, extra = {}) {
-  const c = cfg();
+  const c = cfg() || {};
   const job = crypto.randomUUID();
   await env.FILES.put(JOB(job), JSON.stringify({
     text: text.slice(0, 6000), target: String(env.OWNER_CHAT_ID), voice: c.voice || "es-ES-AlvaroNeural", date: wakeAtIso.slice(0, 10),
     ...extra, // opening (saludo con pregunta) y facts (datos del día para la conversación)
   }), { expirationTtl: 86400 });
+  if (config.runtime?.enabled && config.runtime?.voice) {
+    const health=await runtimeStatus(env);
+    if (!health.online || !health.voice) throw new Error('El servicio de llamadas está desconectado.');
+    const queued=await submitRuntime(env,'call',{job,wake_at:wakeAtIso},{wait:false,expiresAt:Date.parse(wakeAtIso)+15*60000});
+    if (!queued.ok) throw new Error(queued.error || 'No se pudo programar la llamada');
+    return 'runtime';
+  }
   if (c.modalUrl) {
     try {
       const m = await fetch(c.modalUrl, {
@@ -229,12 +237,12 @@ export async function wakeTick(env, at = Date.now()) {
     const iso = madridIso(date, time);
     const left = (Date.parse(iso) - at) / 60000;
     if (left < 4 || left > 34 || await env.FILES.get(SENT(date))) continue;
-    await env.FILES.put(SENT(date), "1", { expirationTtl: 2 * 86400 });
     const facts = await dayFacts(env, date);
     const [text, opening] = await Promise.all([buildBriefing(env, date, time, facts), buildOpening(env, date, time, facts)]);
     await env.FILES.put(TEXT(date), text, { expirationTtl: 2 * 86400 });
     try {
       await dispatch(env, iso, text, { opening, facts });
+      await env.FILES.put(SENT(date), "1", { expirationTtl: 2 * 86400 });
       console.log(`[jarvis] llamada programada ${iso}`);
     } catch (e) {
       console.error("jarvis", e?.message || e);
@@ -296,7 +304,23 @@ export async function jarvisReport(env, body) {
     await tg(env, "sendMessage", { chat_id: env.OWNER_CHAT_ID, text: "📵 Jarvis no puede llamarte: tu privacidad de Telegram lo bloquea. En tu cuenta: Ajustes → Privacidad y seguridad → Llamadas → «Todos», o en «Siempre permitir» añade la cuenta de Jarvis. Luego prueba otra vez con /llamame." });
     return { ok: true };
   }
+  if (body?.status === 'failed') {
+    await tg(env,'sendMessage',{chat_id:env.OWNER_CHAT_ID,text:'📞 La llamada ha fallado o se ha cortado. Puedes escribirme por aquí; no voy a volver a llamarte automáticamente.'});
+    return {ok:true};
+  }
   const text = job?.text || "No he podido recuperar el resumen.";
   await tg(env, "sendMessage", { chat_id: env.OWNER_CHAT_ID, text: `📞 Te he llamado y no lo has cogido. Tu día:\n\n${text}`.slice(0, 4000) });
   return { ok: true };
+}
+
+/** Sesión para llamada entrante: comparte agente y herramientas, sin fingir un despertador. */
+export async function createVoiceSession(env,existing) {
+  if(existing) {
+    const data=await jarvisJob(env,existing);
+    if(!data) return {error:'job'};
+    return {job:existing,opening:data.opening || 'Hola. ¿En qué te ayudo?'};
+  }
+  const id=crypto.randomUUID(),opening='Hola. Te escucho, ¿qué necesitas?';
+  await env.FILES.put(JOB(id),JSON.stringify({text:opening,opening,origin:'incoming',facts:''}),{expirationTtl:3600});
+  return {job:id,opening};
 }

@@ -41,6 +41,7 @@ async function queryAll(env, id, body, max = 300) {
     out.push(...j.results);
     cursor = j.has_more ? j.next_cursor : null;
   } while (cursor && out.length < max);
+  if (cursor) throw new Error("Notion: resultado incompleto; no se reconcilian tareas.");
   return out;
 }
 
@@ -136,50 +137,92 @@ export async function syncNotionTasks(env) {
   if (!notionOn(env) || !cfg().tasks) return;
   const c = cfg().tasks;
   const { tasks: id, me } = await ids(env);
-  if (!id || !me) return;
+  if (!id || !me) throw new Error("Notion: no se encuentra la base o tu miembro; revisa los permisos.");
   const rows = await queryAll(env, id, { filter: { property: c.assignee, relation: { contains: me } } });
+  const seen = new Set();
   for (const r of rows) {
-    const title = titleOf(r);
-    if (!title) continue;
-    const source = `notion:${r.id}`;
-    const done = (c.done || []).map(norm).includes(norm(r.properties[c.status]?.status?.name || r.properties[c.status]?.select?.name));
-    const due = madrid(r.properties[c.date]?.date?.start);
-    const item = await env.DB.prepare("SELECT * FROM items WHERE source=?").bind(source).first();
-    if (!item) {
-      if (done) continue;
-      const res = await env.DB.prepare(
-        "INSERT INTO items (kind, text, category, priority, due_date, source, url) VALUES ('tarea', ?, ?, ?, ?, ?, ?)"
-      ).bind(title, cfg().category || null, PRIORITY(r.properties[c.priority]?.select?.name), due?.date || null, source, r.url).run();
-      const newItem = await env.DB.prepare("SELECT * FROM items WHERE id=?").bind(res.meta.last_row_id).first();
-      const where = await placeTask(env, newItem);
-      await notify(env, `📌 Nueva tarea en ${cfg().name}: ${title}${due ? `\n📅 vence ${due.date}${due.time ? ` ${due.time}` : ""}` : ""}${where}\n${r.url}`, newItem.id);
-      continue;
-    }
-    if (done && item.status !== "hecha") {
-      await env.DB.prepare("UPDATE items SET status='hecha', done_at=datetime('now') WHERE id=?").bind(item.id).run();
-    } else if (!done && due?.date && due.date !== item.due_date) {
-      await env.DB.prepare("UPDATE items SET due_date=? WHERE id=?").bind(due.date, item.id).run();
-      await notify(env, `📅 Cambia la fecha en ${cfg().name}: ${title}\nAhora vence el ${due.date}`, item.id);
+    seen.add(`notion:${r.id}`);
+    await reconcileNotionPage(env, r, c);
+  }
+  // Verificar ausentes en origen: nunca retirarlos solo porque una consulta fue parcial o falló.
+  const { results: existing } = await env.DB.prepare("SELECT * FROM items WHERE source LIKE 'notion:%' AND status != 'retirada'").all();
+  const missing = existing.filter((it) => !seen.has(it.source));
+  const offset = Number(await env.FILES.get("notion:verify-offset") || 0) % Math.max(1, missing.length);
+  const selected = [...missing.slice(offset), ...missing.slice(0, offset)].slice(0, 6);
+  for (const item of selected) {
+    const r = await api(env, `/pages/${item.source.slice(7)}`);
+    const assigned = r.properties?.[c.assignee]?.relation?.some((x) => x.id === me);
+    if (r.archived || r.in_trash || !assigned) {
+      await env.DB.prepare("UPDATE items SET status='retirada', start_at=NULL, end_at=NULL WHERE id=?").bind(item.id).run();
+      await notify(env, `ℹ️ Ya no está asignada a ti o se ha retirado de ${cfg().name}: ${item.text}`, item.id);
     }
   }
+  await env.FILES.put("notion:verify-offset", String(offset + selected.length));
+}
+
+export function notionTaskFields(r, c) {
+  const due = madrid(r.properties[c.date]?.date?.start);
+  const done = (c.done || []).map(norm).includes(norm(r.properties[c.status]?.status?.name || r.properties[c.status]?.select?.name));
+  return { text: titleOf(r), due_date: due?.date || null, due_at: due?.time ? `${due.date}T${due.time}` : null,
+    priority: PRIORITY(r.properties[c.priority]?.select?.name), status: done ? "hecha" : "pendiente", url: r.url || null };
+}
+
+async function reconcileNotionPage(env, r, c) {
+  const fields = notionTaskFields(r, c);
+  if (!fields.text) return;
+  const source = `notion:${r.id}`;
+  const item = await env.DB.prepare("SELECT * FROM items WHERE source=?").bind(source).first();
+  if (!item) {
+    if (fields.status === "hecha") return;
+    const res = await env.DB.prepare(
+      "INSERT INTO items (kind, text, category, priority, due_date, due_at, source, url) VALUES ('tarea', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source) DO NOTHING"
+    ).bind(fields.text, cfg().category || null, fields.priority, fields.due_date, fields.due_at, source, fields.url).run();
+    if (!res.meta.changes) return;
+    const fresh = await env.DB.prepare("SELECT * FROM items WHERE source=?").bind(source).first();
+    const where = await placeTask(env, fresh);
+    await notify(env, `📌 Nueva tarea en ${cfg().name}: ${fields.text}${fields.due_date ? `\n📅 vence ${fields.due_date}` : ""}${where}\n${fields.url || ""}`, fresh.id);
+    return;
+  }
+  const changed = Object.keys(fields).filter((key) => (item[key] ?? null) !== fields[key]);
+  if (!changed.length) return;
+  const dueChanged = changed.some((k) => k === "due_date" || k === "due_at");
+  const reopened = item.status !== "pendiente" && fields.status === "pendiente";
+  await env.DB.prepare(`UPDATE items SET text=?, due_date=?, due_at=?, priority=?, status=?, url=?,
+      done_at=CASE WHEN ?='hecha' THEN COALESCE(done_at,datetime('now')) ELSE NULL END,
+      start_at=CASE WHEN ?='hecha' THEN NULL ELSE start_at END,
+      end_at=CASE WHEN ?='hecha' THEN NULL ELSE end_at END WHERE id=?`)
+    .bind(fields.text, fields.due_date, fields.due_at, fields.priority, fields.status, fields.url, fields.status, fields.status, fields.status, item.id).run();
+  // Replanificar el bloque si el plazo cambia o la tarea se reabre.
+  let where = "";
+  if (fields.status === "pendiente" && (dueChanged || reopened)) {
+    const fresh = await env.DB.prepare("SELECT * FROM items WHERE id=?").bind(item.id).first();
+    where = await placeTask(env, fresh);
+  }
+  await notify(env, `🔄 Cambio en ${cfg().name}: ${fields.text}\n${fields.status === "hecha" ? "Completada en origen" : reopened ? "Vuelve a estar pendiente" : "Datos actualizados"}${fields.due_date ? ` · vence ${fields.due_date}` : " · sin fecha límite"}${where}\n${fields.url || ""}`, item.id);
 }
 
 // ---------- conocimiento: buscar y leer páginas ----------
 
-async function pageText(env, pageId, limit = 3500) {
-  const lines = [];
-  let cursor;
-  do {
-    const j = await api(env, `/blocks/${pageId}/children?page_size=100${cursor ? `&start_cursor=${cursor}` : ""}`);
-    for (const b of j.results) {
-      const rt = b[b.type]?.rich_text;
-      if (rt?.length) lines.push(`${b.type.startsWith("heading") ? "## " : b.type.includes("list") ? "• " : b.type === "to_do" ? (b.to_do.checked ? "☑ " : "☐ ") : ""}${txt(rt)}`);
-      else if (b.type === "child_page") lines.push(`(subpágina: ${b.child_page.title})`);
-      else if (b.type === "child_database") lines.push(`(base de datos: ${b.child_database.title})`);
-    }
-    cursor = j.has_more ? j.next_cursor : null;
-  } while (cursor && lines.join("\n").length < limit);
-  return lines.join("\n").slice(0, limit);
+async function pageText(env, pageId, limit = 6000) {
+  const lines = []; let calls = 0; let truncated = false;
+  const read = async (id, depth = 0) => {
+    let cursor;
+    do {
+      if (calls >= 8 || lines.join("\n").length >= limit || depth > 4) { truncated = true; return; }
+      calls++;
+      const j = await api(env, `/blocks/${id}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ""}`);
+      for (const b of j.results || []) {
+        const rt = b[b.type]?.rich_text;
+        if (rt?.length) lines.push(`${"  ".repeat(depth)}${b.type === "to_do" ? (b.to_do.checked ? "☑ " : "☐ ") : ""}${txt(rt)}`);
+        else if (b.type === "child_page") lines.push(`Subpágina: ${b.child_page.title} (id ${b.id})`);
+        else if (b.type === "child_database") lines.push(`Base: ${b.child_database.title}`);
+        if (b.has_children) await read(b.id, depth + 1);
+      }
+      cursor = j.has_more ? j.next_cursor : null;
+    } while (cursor);
+  };
+  await read(pageId);
+  return lines.join("\n").slice(0, limit) + (truncated ? "\n[Contenido parcial por límite de lectura; no asumir que se ha leído toda la página.]" : "");
 }
 
 // Campos de una fila de base de datos, legibles (fechas, estado, tipo…).
@@ -208,7 +251,7 @@ export async function searchNotion(env, query) {
   const out = [];
   for (const p of pages) {
     let texto = "";
-    try { texto = await pageText(env, p.id, out.length ? 1500 : 3500); } catch (e) { texto = `(no se pudo leer: ${e.message})`; }
+    try { texto = await pageText(env, p.id, out.length ? 2500 : 6000); } catch (e) { texto = `(no se pudo leer: ${e.message})`; }
     out.push({ titulo: titleOf(p) || "(sin título)", url: p.url, editada: p.last_edited_time?.slice(0, 10), campos: propsText(p), texto });
   }
   return { espacio: cfg().name, resultados: out };

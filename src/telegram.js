@@ -41,6 +41,10 @@ export async function handleWebhook(request, env, ctx) {
     return new Response("forbidden", { status: 403 });
   }
   const update = await request.json();
+  // La red puede reenviar el mismo update; no volver a crear tareas ni llamadas.
+  if (!Number.isSafeInteger(update.update_id)) return new Response('invalid',{status:400});
+  const inserted=await env.DB.prepare('INSERT OR IGNORE INTO processed_updates (id,created_at) VALUES (?,?)').bind(update.update_id,Date.now()).run();
+  if (!inserted.meta.changes) return new Response('ok');
   // Responder rápido a Telegram y procesar en segundo plano
   ctx.waitUntil(processUpdate(update, env).catch((e) => console.error("webhook error:", e)));
   return new Response("ok");
@@ -151,7 +155,7 @@ async function handleMessage(msg, env) {
       await tg(env, "sendMessage", { chat_id: chatId, text: "Jarvis no está configurado (falta config.jarvis o el secreto JARVIS_GH_TOKEN)." });
       return;
     }
-    await tg(env, "sendMessage", { chat_id: chatId, text: "📞 Preparando la llamada: te suena en 1–3 minutos." });
+    await tg(env, "sendMessage", { chat_id: chatId, text: "📞 Preparando la llamada: te suena cuando conecte." });
     try {
       await callNow(env);
     } catch (e) {
@@ -281,8 +285,8 @@ async function planAll(env, chatId) {
   for (const it of results) {
     const { slot, late } = await scheduleTask(env, it);
     lines.push(slot
-      ? `• #${it.id} ${it.text} → ${dayLabel(slot.date)} ${slot.start}–${slot.end}${late ? " ⚠️ tarde" : ""}`
-      : `• #${it.id} ${it.text} → sin hueco`);
+      ? `• ${it.text} → ${dayLabel(slot.date)} ${slot.start}–${slot.end}${late ? " ⚠️ tarde" : ""}`
+      : `• ${it.text} → sin hueco`);
   }
   await tg(env, "sendMessage", {
     chat_id: chatId,
@@ -301,7 +305,7 @@ async function saveSingleItem(env, chatId, file, effectiveText, cls, preBuffer) 
 
   await tg(env, "sendMessage", {
     chat_id: chatId,
-    text: `📥 Guardada #${id}\n${summaryLine(cls)}${agenda}${fileNote}`,
+    text: `📥 Guardada\n${summaryLine(cls)}${agenda}${fileNote}`,
     reply_markup: itemKeyboard(id, cls.kind),
   });
 }
@@ -319,7 +323,7 @@ async function saveAudioItems(env, chatId, file, preBuffer, transcript, items) {
 
     await tg(env, "sendMessage", {
       chat_id: chatId,
-      text: `${prefix}📥 Guardada #${id}\n${summaryLine(cls)}${agenda}${fileNote}`,
+      text: `${prefix}📥 Guardada\n${summaryLine(cls)}${agenda}${fileNote}`,
       reply_markup: itemKeyboard(id, cls.kind),
     });
   }
@@ -402,7 +406,7 @@ async function handleCallback(cb, env) {
       const after = it.end_at ? { date: it.end_at.slice(0, 10), time: it.end_at.slice(11, 16) } : null;
       const line = await placeTask(env, it, after);
       notice = "🔁 Movida";
-      await tg(env, "sendMessage", { chat_id: cb.message.chat.id, text: `🔁 #${id} ${it.text}${line}` });
+      await tg(env, "sendMessage", { chat_id: cb.message.chat.id, text: `🔁 ${it.text}${line}` });
     }
   } else if (action === "ds") {
     // Borrar un evento de varios días entero.
@@ -424,7 +428,7 @@ async function handleCallback(cb, env) {
     await tg(env, "editMessageText", {
       chat_id: cb.message.chat.id,
       message_id: cb.message.message_id,
-      text: `${notice} #${id}`,
+      text: `${notice}\n${(cb.message.text || "").slice(0, 3500)}`,
     });
   } else if (action !== "mv") {
     const it = await env.DB.prepare("SELECT kind FROM items WHERE id=?").bind(id).first();
@@ -455,7 +459,7 @@ async function sendList(env, chatId, onlyToday) {
     const p = i.priority === "urgente" ? "🔥" : i.priority === "algun_dia" ? "🌙" : "▫️";
     const due = i.due_date ? ` (📅 ${i.due_date})` : "";
     const cat = i.category ? ` [${i.category}]` : "";
-    return `${p} #${i.id} ${i.text}${cat}${due}`;
+    return `${p} ${i.text}${cat}${due}`;
   });
   await tg(env, "sendMessage", { chat_id: chatId, text: lines.join("\n").slice(0, 4000) });
 }

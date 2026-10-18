@@ -315,7 +315,7 @@ export async function mailCallback(env, cb, action, id) {
   await tg(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "📌 Apuntado" });
   await tg(env, "editMessageText", {
     chat_id, message_id,
-    text: `${cb.message.text}\n\n✅ Apuntado #${itemId}`.slice(0, 4000),
+    text: `${cb.message.text}\n\n✅ Apuntado`.slice(0, 4000),
     reply_markup: { inline_keyboard: [[{ text: "↩️ Deshacer", callback_data: `del:${itemId}` }]] },
     link_preview_options: { is_disabled: true },
   });

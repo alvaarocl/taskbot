@@ -118,7 +118,11 @@ async def dial(target, audio_path, wake_at):
                 report("privacy", attempt)
                 await client.disconnect()
                 return 3
-            except (TimedOutAnswer, CallDeclined, CallBusy, CallDiscarded) as e:
+            except CallDeclined:
+                report("declined", attempt)
+                await client.disconnect()
+                return 2
+            except (TimedOutAnswer, CallBusy, CallDiscarded) as e:
                 log(f"sin respuesta: {type(e).__name__}")
                 break  # no lo ha cogido: esperar antes de volver a llamar
             except Exception as e:

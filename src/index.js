@@ -1,4 +1,9 @@
 import config from "../config.js";
+import { proactiveTick } from "./proactive.js";
+import { handleRuntime, cleanRuntime } from "./runtime.js";
+import { runSync } from "./freshness.js";
+import { loadBusy } from "./brain.js";
+import { localEpoch } from "./time.js";
 import { handleWebhook } from "./telegram.js";
 import { handleApi } from "./api.js";
 import { runReminders } from "./reminders.js";
@@ -37,8 +42,16 @@ export default {
     if (url.hostname.endsWith(".workers.dev") && url.origin !== panelOrigin(env) && !MACHINE_ROUTES.test(url.pathname)) {
       return Response.redirect(panelOrigin(env) + url.pathname + url.search, 302);
     }
+    if (url.pathname.startsWith("/api/runtime/")) return handleRuntime(request,env);
     if (url.pathname === "/webhook") return handleWebhook(request, env, ctx);
     if (url.pathname.startsWith("/auth/")) return handleAuth(request, env);
+    if (url.pathname === "/internal/busy") {
+      if (url.hostname !== "internal" || request.method !== "GET") return new Response("not found", {status:404});
+      const from=url.searchParams.get('from'), to=url.searchParams.get('to');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from||'') || !/^\d{4}-\d{2}-\d{2}$/.test(to||'') || to<from || Date.parse(to)-Date.parse(from)>35*86400000) return Response.json({error:'range'},{status:400});
+      const blocks=await loadBusy(env,from,to,null,false);
+      return Response.json({busy:blocks.filter(b=>!b.soft).map(b=>({start:localEpoch(b.date,b.start),end:b.end==='24:00'?localEpoch(new Date(Date.parse(b.date+'T12:00Z')+86400000).toISOString().slice(0,10)):localEpoch(b.date,b.end)}))});
+    }
     // Mensajes y reservas que empuja el worker `api` por su service binding (host "internal", solo existe por ahí).
     if (url.pathname === "/internal/inbox") return url.hostname === "internal" ? handleInbox(request, env) : new Response("not found", { status: 404 });
     // El workflow de Jarvis avisa de cómo fue la llamada (su propio token, no el del panel).
@@ -71,25 +84,27 @@ export default {
     if (event.cron === AULA_CRON) {
       // Chequeo de salud (~6 peticiones): una vez por la noche, solo escribe si algo falla.
       if (config.health && madridHour === (config.health.hour ?? 21)) ctx.waitUntil(nightlyHealth(env).catch((e) => console.error("salud", e?.message || e)));
-      ctx.waitUntil(syncAulaGlobal(env));
+      ctx.waitUntil(runSync(env,"aula:tareas",()=>syncAulaGlobal(env)));
       ctx.waitUntil(processQueue(env, agent).catch((e) => console.error("cola", e?.message || e))); // mensajes en espera por falta de cuota
+      ctx.waitUntil(proactiveTick(env).catch((e)=>console.error("proactive",e?.name)));
       ctx.waitUntil(wakeTick(env, event.scheduledTime).catch((e) => console.error("jarvis", e?.message || e)));
       ctx.waitUntil(retryMail(env).catch((e) => console.error("correo", e?.message || e))); // correos que esperaban a la IA
     }
     else if (event.cron === SPLIT_CRON) {
       const sunday = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", weekday: "short" }).format(at) === "Sun";
       if (madridHour === MORNING_HOUR_MADRID) ctx.waitUntil(runReminders(env));
-      if (madridHour === PURGE_HOUR_MADRID) ctx.waitUntil(Promise.all([purgeAuth(env), purgeInbox(env)]));
+      if (madridHour === PURGE_HOUR_MADRID) ctx.waitUntil(Promise.all([purgeAuth(env), purgeInbox(env), cleanRuntime(env)]));
       const weekly = !!config.weekly && sunday && madridHour === WEEKLY_HOUR_MADRID;
       // Cierre del día: lo que ha quedado pendiente, con botones para pasarlo a mañana.
       if (config.evening && madridHour === (config.evening.hour ?? 22)) ctx.waitUntil(eveningClose(env).catch((e) => console.error("cierre", e?.message || e)));
       if (weekly) ctx.waitUntil(buildWeekly(env).catch((e) => console.error("resumen semanal", e?.stack || e)));
       // Máximo 50 peticiones externas por ejecución: el horario usa ~4, material y notas ~15 y el asistente de X ~14 (~18 cuando toca Trending por lenguajes o eventos).
-      if (hour % 3 === 0) ctx.waitUntil(syncUc3m(env));
-      else if (hour % 3 === 1) ctx.waitUntil(syncAulaMaterial(env));
+      if (hour % 3 === 0) ctx.waitUntil(runSync(env,"uc3m:horario",()=>syncUc3m(env)));
+      else if (hour % 3 === 1) ctx.waitUntil(runSync(env,"aula:material",()=>syncAulaMaterial(env)));
+      ctx.waitUntil(proactiveTick(env).catch((e)=>console.error("proactive",e?.name)));
       ctx.waitUntil(wakeTick(env, event.scheduledTime).catch((e) => console.error("jarvis", e?.message || e)));
       // Notion: eventos al día (agenda y calendario) y tareas asignadas a ti (~4 peticiones).
-      ctx.waitUntil(fetchEvents(env).then(() => syncNotionTasks(env)).catch((e) => console.error("notion", e?.message || e)));
+      ctx.waitUntil(runSync(env,"notion",()=>fetchEvents(env).then(()=>syncNotionTasks(env))));
       // El resumen gasta ~10 peticiones de GitHub: ese tick se salta el asistente de X para no pasar de 50.
       if (!weekly) ctx.waitUntil(hourlySocial(env));
     } else console.warn("cron desconocido:", event.cron);

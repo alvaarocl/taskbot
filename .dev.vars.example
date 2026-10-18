@@ -37,3 +37,15 @@ PANEL_ORIGIN=http://localhost:8787
 
 # El bot escribe lo que mandaría a Telegram en el log, sin mandarlo
 TG_DRY_RUN=1
+
+# Puente personal de Obsidian y llamadas (token separado del panel y Jarvis legacy).
+RUNTIME_TOKEN=
+# Gmail directo (OAuth de la cuenta elegida, con gmail.readonly/modify/compose según funciones).
+GMAIL_CLIENT_ID=
+GMAIL_CLIENT_SECRET=
+GMAIL_REFRESH_TOKEN=
+
+# Segunda cuenta, independiente (solo si el proveedor universitario es Google Workspace).
+UNIVERSITY_GMAIL_CLIENT_ID=
+UNIVERSITY_GMAIL_CLIENT_SECRET=
+UNIVERSITY_GMAIL_REFRESH_TOKEN=

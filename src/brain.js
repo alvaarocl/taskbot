@@ -3,6 +3,8 @@
 // Todas las horas son locales de Madrid: fechas "YYYY-MM-DD" y horas "HH:MM".
 
 import config from "../config.js";
+import { externalBusy } from "./calendar-bridge.js";
+import { splitInterval } from "./time.js";
 import { typeLabel } from "./sync.js";
 import { fixedAgenda } from "./overrides.js";
 import { cachedEvents } from "./notion.js";
@@ -37,7 +39,7 @@ export function dayLabel(date) {
 const isWeekend = (date) => [0, 6].includes(new Date(date + "T00:00:00Z").getUTCDay());
 
 // Todo lo que ocupa tiempo entre `from` y `to` (incluidos). `skipId`: no contar el bloque de esa tarea.
-export async function loadBusy(env, from, to, skipId = null) {
+export async function loadBusy(env, from, to, skipId = null, includeExternal = true) {
   const busy = [];
   const campus = new Map(); // fecha → [primera hora, última hora] de clase presencial
   const fixed = await fixedAgenda(env, from, to);
@@ -95,6 +97,17 @@ export async function loadBusy(env, from, to, skipId = null) {
       fixed: it.kind === "evento",
     });
   }
+  // Las reservas son eventos operativos, no solo mensajes del panel.
+  const meetings = await env.DB.prepare("SELECT * FROM inbox WHERE kind='reunion' AND status != 'cancelada' AND end_at > ? AND start_at < ?")
+    .bind(addDays(from,-1)+'T00:00:00Z', addDays(to,2)+'T00:00:00Z').all();
+  for (const meeting of meetings.results) {
+    busy.push(...splitInterval(Date.parse(meeting.start_at), Date.parse(meeting.end_at), `📞 ${meeting.name || 'Reunión'}${meeting.topic ? ' · '+meeting.topic : ''}`));
+  }
+  if (includeExternal) {
+    for (const block of await externalBusy(env, from, to)) {
+      if (!busy.some(b=>b.date===block.date && (b.shown||b.start)===block.start && (b.shownEnd||b.end)===block.end)) busy.push(block);
+    }
+  }
   return busy.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
 }
 
@@ -134,17 +147,20 @@ export async function scheduleTask(env, item, after = null) {
   const now = nowMadrid();
   const from = after && after.date + after.time > now.date + now.time ? after : now;
   const duration = item.duration_min || PREFS.defaultTaskMin;
-  const horizon = addDays(now.date, PREFS.horizonDays);
-  const until = item.due_date && item.due_date >= from.date ? item.due_date : horizon;
-  const busy = await loadBusy(env, from.date, addDays(until > horizon ? until : horizon, 7), item.id);
-
-  let slot = findSlot(busy, duration, from, until);
+  const horizon = addDays(from.date, PREFS.horizonDays);
+  const until = item.due_date && item.due_date < horizon ? item.due_date : horizon;
+  const busy = await loadBusy(env, from.date, addDays(horizon,7), item.id);
+  const deadlineBlock=item.due_at ? {date:item.due_at.slice(0,10),start:item.due_at.slice(11,16),end:'24:00'} : null;
+  let slot = findSlot(deadlineBlock?[...busy,deadlineBlock]:busy, duration, from, until);
   let late = false;
   if (!slot && item.due_date) {
-    slot = findSlot(busy, duration, from, addDays(until, 7));
+    slot = findSlot(busy, duration, from, addDays(horizon,7));
     late = !!slot;
   }
-  if (!slot) return { slot: null, late };
+  if (!slot) {
+    await env.DB.prepare('UPDATE items SET start_at=NULL,end_at=NULL WHERE id=?').bind(item.id).run();
+    return { slot: null, late };
+  }
   await env.DB.prepare("UPDATE items SET start_at=?, end_at=? WHERE id=?")
     .bind(`${slot.date}T${slot.start}`, `${slot.date}T${slot.end}`, item.id).run();
   return { slot, late };

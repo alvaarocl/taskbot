@@ -5,6 +5,8 @@
 // Aula Global no se mira aquí: ya avisa sola cuando caduca su acceso (src/aulaglobal.js).
 
 import config from "../config.js";
+import { runtimeStatus, runtimeEnabled } from "./runtime.js";
+import { syncStatus } from "./freshness.js";
 import { tg } from "./telegram.js";
 import { notionOn } from "./notion.js";
 import { jarvisOn } from "./wake.js";
@@ -26,6 +28,17 @@ const ok = (name, detail = "") => ({ name, ok: true, detail });
 const fail = (name, detail, fix) => ({ name, ok: false, detail, fix });
 
 const CHECKS = {
+  async runtime(env) {
+    if (!runtimeEnabled(env)) return null;
+    const state=await runtimeStatus(env);
+    if(state.online && config.runtime?.voice && !state.voice)return fail('Voz de Jarvis','pendiente de autorización o conexión','Completa Autorizar Jarvis en el Mac. Obsidian sigue disponible.');
+    return state.online ? ok('Servicio personal',state.voice?'Obsidian y voz':'Obsidian; voz desactivada') : fail('Servicio personal','sin conexión','Arranca el servicio en el equipo configurado. Las funciones locales no están disponibles.');
+  },
+  async freshness(env) {
+    const states=await syncStatus(env);
+    const stale=states.filter(s=>s.error || !s.success_at || Date.now()-Date.parse(s.success_at)>4*3600000);
+    return stale.length ? fail('Sincronizaciones',stale.map(s=>s.source).join(', '),'Consulta servicio_estado para ver fechas y errores.') : ok('Sincronizaciones',states.length+' fuentes registradas');
+  },
   // Telegram no consigue entregar los mensajes al bot (worker caído, webhook mal registrado…).
   async telegram(env) {
     const r = await (await get(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/getWebhookInfo`)).json();
@@ -72,7 +85,7 @@ const CHECKS = {
   },
 
   async jarvisGithub(env) {
-    if (!jarvisOn(env)) return null;
+    if (config.runtime?.voice || !jarvisOn(env)) return null;
     const r = await get(`https://api.github.com/repos/${config.jarvis.repo}`, {
       headers: { authorization: `Bearer ${env.JARVIS_GH_TOKEN}`, "user-agent": "taskbot", accept: "application/vnd.github+json" },
     });
@@ -83,7 +96,7 @@ const CHECKS = {
 
   // La voz natural (Modal) y la sesión de la cuenta de Telegram que llama: si se cierra, Jarvis no puede llamar.
   async jarvisModal(env) {
-    if (!jarvisOn(env) || !config.jarvis.modalUrl) return null;
+    if (config.runtime?.voice || !jarvisOn(env) || !config.jarvis.modalUrl) return null;
     let j;
     try {
       const r = await get(config.jarvis.modalUrl.replace("-start.", "-health."), {

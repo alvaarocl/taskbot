@@ -1,0 +1,2 @@
+# Python 3.10–3.13; la versión revisada de OpenJarvis no admite Python 3.14.
+OpenJarvis @ git+https://github.com/open-jarvis/OpenJarvis.git@2817faa5fe9dbf0612f56be46f77d7c5c38e271c

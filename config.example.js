@@ -4,6 +4,11 @@
 // Cada bloque es un módulo. Los opcionales se apagan poniéndolos a null (o borrándolos).
 
 export default {
+  // Reutiliza el cliente OAuth custodiado por el Worker api; requiere consentimiento por cuenta.
+  gmail: { broker: false },
+  // Servicio personal saliente: Markdown y voz. Activar después de la migración y heartbeat.
+  runtime: { enabled: false, voice: false, evaluation: false, timeoutMs: 16000 },
+
   // Quién eres: lo usa el asistente de Telegram (src/agent.js) para entender lo que le mandas.
   assistant: {
     name: "Tu nombre",

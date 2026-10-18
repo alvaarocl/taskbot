@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "wrangler dev --local-upstream localhost:8787",
     "deploy": "wrangler deploy",
-    "db:schema": "wrangler d1 execute taskbot --remote --file=schema.sql"
+    "db:schema": "wrangler d1 execute taskbot --remote --file=schema.sql",
+    "test": "node scripts/test.mjs",
+    "test:runtime": "python3 -m unittest discover -s runtime -p \"test_*.py\""
   }
 }

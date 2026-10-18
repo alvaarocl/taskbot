@@ -34,3 +34,8 @@ binding = "AI"
 # Crons en UTC (la cuenta gratis permite 5 entre todos los workers). Los buenos días van en el de "45" a las 7:45 de Madrid.
 [triggers]
 crons = ["15 * * * *", "45 * * * *"]
+
+# Calendarios externos por el servicio de reservas existente (sin credenciales duplicadas).
+[[services]]
+binding = "CALENDAR_API"
+service = "api"

@@ -26,3 +26,10 @@ CLAUDE.local.md
 
 __pycache__/
 *.pyc
+
+# Servicio personal: configuración y estado privados
+runtime/config.json
+runtime/.env
+runtime/.venv/
+*.session
+*.session-journal

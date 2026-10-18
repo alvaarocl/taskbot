@@ -6,13 +6,14 @@
 // Las entregas de la uni (Aula Global, cronogramas) no se mueven: su fecha no es tuya. Solo ✅.
 
 import config from "../config.js";
+import { shortTitle } from "./presentation.js";
 import { tg } from "./telegram.js";
 import { nowMadrid, addDays, dayLabel, scheduleTask } from "./brain.js";
 import { rememberAssistant } from "./agent.js";
 
 const MAX = 8;
 const STATE = (date) => `evening:${date}`; // { ids, log }: para rehacer el mensaje al pulsar
-const fixedDeadline = (it) => /^(ag|crono):/.test(it.source || "");
+const fixedDeadline = (it) => /^(ag|crono|notion):/.test(it.source || "");
 
 async function pendingToday(env, date) {
   const { results } = await env.DB.prepare(
@@ -31,15 +32,15 @@ function why(it, date) {
 }
 
 function render(items, date, log = []) {
-  const lines = items.map((it) => `• #${it.id} ${it.text} — ${why(it, date)}`);
+  const lines = items.map((it) => `• ${it.text} — ${why(it, date)}`);
   const text = [
     "🌙 Cierre del día",
     lines.length ? `Ha quedado pendiente:\n${lines.join("\n")}` : "Todo resuelto 👌",
     log.length ? log.join("\n") : "",
   ].filter(Boolean).join("\n\n");
   const rows = items.map((it) => [
-    { text: `✅ #${it.id}`, callback_data: `cd:${it.id}` },
-    ...(fixedDeadline(it) ? [] : [{ text: `➡️ #${it.id} a mañana`, callback_data: `cm:${it.id}` }]),
+    { text: `✅ ${shortTitle(it.text, 26)}`, callback_data: `cd:${it.id}` },
+    ...(fixedDeadline(it) ? [] : [{ text: `➡️ a mañana`, callback_data: `cm:${it.id}` }]),
   ]);
   if (items.some((it) => !fixedDeadline(it))) rows.push([{ text: "➡️ Todo a mañana", callback_data: `ca:${date}` }, { text: "👌 Lo dejo así", callback_data: `ck:${date}` }]);
   else if (items.length) rows.push([{ text: "👌 Lo dejo así", callback_data: `ck:${date}` }]);
@@ -62,14 +63,14 @@ async function toTomorrow(env, it, today) {
   if (!it.due_date || it.due_date <= today) {
     await env.DB.prepare("UPDATE items SET due_date=?, due_at=NULL WHERE id=?").bind(tomorrow, it.id).run();
   }
-  if (!it.start_at) return `➡️ #${it.id} ${it.text}: para mañana`;
+  if (!it.start_at) return `➡️ ${it.text}: para mañana`;
   const fresh = await env.DB.prepare("SELECT * FROM items WHERE id=?").bind(it.id).first();
   const { slot, late } = await scheduleTask(env, fresh, { date: tomorrow, time: "00:00" });
   if (!slot) {
     await env.DB.prepare("UPDATE items SET start_at=NULL, end_at=NULL WHERE id=?").bind(it.id).run();
-    return `➡️ #${it.id} ${it.text}: para mañana (sin hueco libre)`;
+    return `➡️ ${it.text}: para mañana (sin hueco libre)`;
   }
-  return `➡️ #${it.id} ${it.text}: ${dayLabel(slot.date)} ${slot.start}–${slot.end}${late ? " (no cabía antes)" : ""}`;
+  return `➡️ ${it.text}: ${dayLabel(slot.date)} ${slot.start}–${slot.end}${late ? " (no cabía antes)" : ""}`;
 }
 
 /** Botones: cd (hecha), cm (a mañana), ca (todo a mañana), ck (lo dejo así). */
@@ -93,7 +94,7 @@ export async function eveningCallback(env, cb, action, arg) {
     const it = await load(id);
     if (it) {
       await env.DB.prepare("UPDATE items SET status='hecha', done_at=datetime('now') WHERE id=?").bind(id).run();
-      state.log.push(`✅ #${id} ${it.text}`);
+      state.log.push(`✅ ${it.text}`);
     }
     state.ids = state.ids.filter((x) => x !== id);
     notice = "✅ Hecha";

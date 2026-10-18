@@ -2,6 +2,7 @@
 // calendario ya resuelto para el modelo, la agenda de varios días y los cambios con ↩️ Deshacer.
 
 import config from "../config.js";
+import { hideReferences } from "./presentation.js";
 import { loadBusy, freeSlots, findSlot, nowMadrid, addDays, dayLabel, toMin, fromMin, conflictsFor } from "./brain.js";
 
 const DAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
@@ -56,7 +57,7 @@ export async function agendaBlock(env, from, to, now) {
 // ---------- cambios ----------
 
 export const UNDO = (id) => `undo:${id}`;
-export const COLS = ["text", "due_date", "due_at", "start_at", "end_at", "duration_min", "status", "all_day", "tbc"];
+export const COLS = ["text", "due_date", "due_at", "start_at", "end_at", "duration_min", "status", "done_at", "all_day", "tbc"];
 
 export async function applyChange(env, item, intent, c) {
   const row = await env.DB.prepare("SELECT * FROM items WHERE id=?").bind(item.id).first();
@@ -125,7 +126,7 @@ export async function applyChange(env, item, intent, c) {
   }
   const moved = row.kind === "examen" && row.start_at !== after.start_at && row.start_at
     ? `\nEl ${dayLabel(row.start_at.slice(0, 10))} vuelve a salir la clase normal.` : "";
-  return `✏️ Cambiado:\n${describe(after)}${moved}${clash}${extra}`;
+  return `✏️ Cambiado:\n${hideReferences(describe(after))}${moved}${clash}${extra}`;
 }
 
 // Botón ↩️ Deshacer.
