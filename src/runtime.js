@@ -35,7 +35,19 @@ export async function handleRuntime(request,env) {
     const r=await env.CALENDAR_API.fetch('https://internal/internal/gmail/'+action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(await request.json())});
     return new Response(r.body,{status:r.status,headers:{'content-type':'application/json','cache-control':'no-store'}});
   }
-  if(request.method==='POST' && path==='/status') return json(await runtimeStatus(env));
+  if(request.method==='POST' && path==='/status') {
+    const state=await runtimeStatus(env),body=await request.json().catch(()=>({}));
+    if(body.calendar && env.CALENDAR_API){
+      state.calendar={};
+      for(const route of ['health','availability?duration=30']){
+        try{
+          const r=await env.CALENDAR_API.fetch('https://internal/'+route),data=await r.json();
+          state.calendar[route]={status:r.status,...(route==='health'?data:{slots:data.slots?.length||0})};
+        }catch{state.calendar[route]={error:'unavailable'};}
+      }
+    }
+    return json(state);
+  }
   if(request.method==='POST' && path==='/identity') return json({owner_id:String(env.OWNER_CHAT_ID||'')});
   if(request.method==='POST' && path==='/assistant/generate') {
     if(!config.runtime?.evaluation)return json({error:'evaluation disabled'},403);
