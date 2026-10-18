@@ -10,6 +10,7 @@ import { syncStatus } from "./freshness.js";
 import { tg } from "./telegram.js";
 import { notionOn } from "./notion.js";
 import { jarvisOn } from "./wake.js";
+import { gmailStatus, gmailEnabled } from "./gmail.js";
 
 const TIMEOUT_MS = 20000;
 const QUEUE_STUCK_HOURS = 6;
@@ -28,6 +29,12 @@ const ok = (name, detail = "") => ({ name, ok: true, detail });
 const fail = (name, detail, fix) => ({ name, ok: false, detail, fix });
 
 const CHECKS = {
+  async gmail(env) {
+    if(!gmailEnabled(env))return null;
+    const state=await gmailStatus(env,{verify:true});
+    const unavailable=state.accounts.filter(a=>!a.connected || !a.readable);
+    return state.error || unavailable.length ? fail('Correo',state.error || unavailable.map(a=>a.account).join(', '),'Revisa el consentimiento de la cuenta y Gmail API.') : ok('Correo',state.accounts.map(a=>a.account).join(' y '));
+  },
   async runtime(env) {
     if (!runtimeEnabled(env)) return null;
     const state=await runtimeStatus(env);

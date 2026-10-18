@@ -3,6 +3,27 @@ import config from "../config.js";
 const ACCOUNT_PREFIX={personal:'GMAIL',universidad:'UNIVERSITY_GMAIL'};
 export function gmailAccounts(env) { if(config.gmail?.broker && env.CALENDAR_API)return ['personal','universidad']; return Object.keys(ACCOUNT_PREFIX).filter(key=>{const p=ACCOUNT_PREFIX[key];return env[p+'_CLIENT_ID']&&env[p+'_CLIENT_SECRET']&&env[p+'_REFRESH_TOKEN']}); }
 export const gmailEnabled=env=>gmailAccounts(env).length>0;
+export async function gmailStatus(env,{verify=false}={}) {
+  let accounts=gmailAccounts(env).map(account=>({account,connected:true}));
+  if(config.gmail?.broker && env.CALENDAR_API){
+    const r=await env.CALENDAR_API.fetch('https://internal/internal/gmail/status',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+    if(!r.ok)return {error:'No se puede comprobar la conexión de correo',accounts:[]};
+    accounts=(await r.json()).accounts||[];
+  }
+  if(verify)for(const account of accounts){
+    if(!account.connected)continue;
+    try{
+      const selected=accountEnv(env,account.account),listed=await api(selected,'/messages?maxResults=1');
+      if(listed.error)throw Error(listed.error);
+      if(listed.messages?.[0]){
+        const read=await api(selected,`/messages/${id(listed.messages[0].id)}?format=full`);
+        if(read.error)throw Error(read.error);
+      }
+      account.readable=true;
+    }catch(e){account.readable=false;account.error=e.message;}
+  }
+  return {accounts};
+}
 function accountEnv(env,account) {
   const available=gmailAccounts(env);
   const key=account || (available.length===1?available[0]:null);

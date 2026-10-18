@@ -1,7 +1,7 @@
 import { notificationPolicy } from './proactive.js';
 import { submitRuntime, runtimeStatus } from './runtime.js';
 import { syncStatus } from './freshness.js';
-import { searchMail, readMail, draftMail, organizeMail } from './gmail.js';
+import { searchMail, readMail, draftMail, organizeMail, gmailStatus } from './gmail.js';
 const str=description=>({type:'string',description});
 const tool=(name,description,properties={},required=[])=>({type:'function',function:{name,description,parameters:{type:'object',properties,required,additionalProperties:false}}});
 export const PERSONAL_TOOLS=[
@@ -41,6 +41,6 @@ export const PERSONAL_HANDLERS={
  correo_organizar:(e,a)=>organizeMail(e,{messageId:a.id,action:a.accion,account:a.cuenta}),
  async servicio_estado(env,a) {
    const job=a.trabajo?await env.DB.prepare('SELECT id,status,result,expires_at FROM runtime_jobs WHERE id=?').bind(a.trabajo).first():null;
-   return {runtime:await runtimeStatus(env),sync:await syncStatus(env),...(job?{job:{...job,result:job.result?JSON.parse(job.result):null,expired:job.expires_at<Date.now()}}:{})};
+   return {runtime:await runtimeStatus(env),mail:await gmailStatus(env),sync:await syncStatus(env),...(job?{job:{...job,result:job.result?JSON.parse(job.result):null,expired:job.expires_at<Date.now()}}:{})};
  },
 };

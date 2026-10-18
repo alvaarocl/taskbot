@@ -37,6 +37,7 @@ export async function handleRuntime(request,env) {
   }
   if(request.method==='POST' && path==='/status') {
     const state=await runtimeStatus(env),body=await request.json().catch(()=>({}));
+    if(body.mail){const {gmailStatus}=await import('./gmail.js');state.mail=await gmailStatus(env,{verify:true});}
     if(body.calendar && env.CALENDAR_API){
       state.calendar={};
       for(const route of ['health','availability?duration=30']){
