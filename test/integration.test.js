@@ -102,3 +102,26 @@ test('hacer una tarea un día concreto no convierte ese día en fecha límite',a
  const e=environment();const {result}=await applyTool(e,'crear_tarea',{titulo:'Estudiar autómatas',fecha_realizacion:'2026-12-06',hora_realizacion:'11:00',duracion_min:60});
  const item=e.DB.raw.prepare('SELECT * FROM items WHERE id=?').get(result.id);assert.equal(item.due_date,null);assert.equal(item.start_at,'2026-12-06T11:00');assert.equal(item.end_at,'2026-12-06T12:00');
 });
+
+
+test('runtime rechaza JSON inválido, cuerpos grandes y métodos sin modificar datos',async()=>{
+ const e={...environment(),RUNTIME_TOKEN:'secret'};
+ const req=(body,method='POST')=>new Request('https://worker/api/runtime/heartbeat',{method,headers:{authorization:'Bearer secret'},...(method==='POST'?{body}:{})});
+ assert.equal((await handleRuntime(req('{'),e)).status,400);
+ assert.equal((await handleRuntime(req('null'),e)).status,400);
+ assert.equal((await handleRuntime(req(JSON.stringify({x:'a'.repeat(2000000)})),e)).status,413);
+ assert.equal((await handleRuntime(req(null,'GET'),e)).status,405);
+ assert.equal(e.DB.raw.prepare('SELECT count(*) AS n FROM runtime_state').get().n,0);
+});
+
+test('rutas privadas, calendarios y endpoints internos no se exponen sin autorización',async()=>{
+ const {default:worker}=await import('../src/index.js');
+ const {default:config}=await import('../config.js');
+ const previous=config.runtime;config.runtime={...previous,voice:true};
+ try{
+  const e={...environment(),CAL_TOKEN:'calendar-secret',RUNTIME_TOKEN:'runtime-secret',TG_WEBHOOK_SECRET:'webhook-secret'};
+  for(const [path,method,expected] of [['/api/items','GET',401],['/api/runtime/status','POST',401],['/calendar.ics','GET',403],['/cal/clases.ics','GET',403],['/internal/busy','GET',404],['/internal/inbox','POST',404],['/webhook','POST',403],['/api/jarvis','GET',410]]){
+   const r=await worker.fetch(new Request('https://worker.example'+path,{method}),e,{waitUntil(){throw Error('No debe ejecutar trabajo')}});assert.equal(r.status,expected,path);
+  }
+ }finally{config.runtime=previous;}
+});

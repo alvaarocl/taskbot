@@ -28,15 +28,24 @@ export async function submitRuntime(env,operation,payload,{wait=true,expiresAt=D
 }
 export async function handleRuntime(request,env) {
   if(!env.RUNTIME_TOKEN || request.headers.get('authorization')!==`Bearer ${env.RUNTIME_TOKEN}`)return json({error:'unauthorized'},401);
+  if(request.method!=='POST')return json({error:'method'},405);
+  let payload;
+  try {
+    const reader=request.body?.getReader();let size=0;const chunks=[];
+    if(reader)while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>2000000){await reader.cancel();return json({error:'too large'},413);}chunks.push(value);}
+    const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+    payload=size?JSON.parse(new TextDecoder().decode(bytes)):{};
+    if(!payload || Array.isArray(payload) || typeof payload!=='object')return json({error:'invalid'},400);
+  }catch{return json({error:'invalid'},400);}
   const url=new URL(request.url); const path=url.pathname.replace('/api/runtime','');
   if(request.method==='POST' && path.startsWith('/mail/')) {
     const action=path.slice(6);
     if(!['authorize','exchange','status'].includes(action)||!env.CALENDAR_API)return json({error:'not configured'},503);
-    const r=await env.CALENDAR_API.fetch('https://internal/internal/gmail/'+action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(await request.json())});
+    const r=await env.CALENDAR_API.fetch('https://internal/internal/gmail/'+action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
     return new Response(r.body,{status:r.status,headers:{'content-type':'application/json','cache-control':'no-store'}});
   }
   if(request.method==='POST' && path==='/status') {
-    const state=await runtimeStatus(env),body=await request.json().catch(()=>({}));
+    const state=await runtimeStatus(env),body=payload;
     if(body.mail){const {gmailStatus}=await import('./gmail.js');state.mail=await gmailStatus(env,{verify:true});}
     if(body.calendar && env.CALENDAR_API){
       state.calendar={};
@@ -52,7 +61,7 @@ export async function handleRuntime(request,env) {
   if(request.method==='POST' && path==='/identity') return json({owner_id:String(env.OWNER_CHAT_ID||'')});
   if(request.method==='POST' && path==='/assistant/generate') {
     if(!config.runtime?.evaluation)return json({error:'evaluation disabled'},403);
-    const body=await request.json();
+    const body=payload;
     if(!Array.isArray(body.messages) || body.messages.length>50 || JSON.stringify(body).length>100000) return json({error:'invalid'},400);
     const {chat}=await import('./llm.js');
     // Solo inferencia; las herramientas de evaluación se ejecutan contra fixtures en el cliente.
@@ -60,7 +69,7 @@ export async function handleRuntime(request,env) {
   }
   if(request.method==='POST' && path.startsWith('/voice/')) {
     if(!runtimeEnabled(env) || !config.runtime?.voice) return json({error:'voice disabled'},503);
-    const body=await request.json();
+    const body=payload;
     const {createVoiceSession,jarvisTurn,jarvisReport}=await import('./wake.js');
     if(path==='/voice/session')return json(await createVoiceSession(env,body.job));
     if(path==='/voice/turn')return json(await jarvisTurn(env,body));
@@ -68,7 +77,7 @@ export async function handleRuntime(request,env) {
     return json({error:'not found'},404);
   }
   if(request.method==='POST' && path==='/heartbeat') {
-    const body=await request.json();
+    const body=payload;
     await env.DB.prepare("INSERT INTO runtime_state(key,value,updated_at) VALUES ('health',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(JSON.stringify({voice:Boolean(body.voice),vault:Boolean(body.vault),version:1}),Date.now()).run();
     return json({ok:true});
   }
@@ -80,7 +89,7 @@ export async function handleRuntime(request,env) {
     return json({job:row?{...row,payload:JSON.parse(row.payload)}:null});
   }
   if(request.method==='POST' && (path==='/jobs/result'||path==='/jobs/lease')) {
-    const body=await request.json();
+    const body=payload;
     if(!body.id || !body.lease)return json({error:'invalid'},400);
     if(path.endsWith('/lease')) {
       const r=await env.DB.prepare("UPDATE runtime_jobs SET lease_until=? WHERE id=? AND lease=? AND status='running'").bind(Date.now()+90000,body.id,body.lease).run();

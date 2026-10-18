@@ -197,7 +197,7 @@ export async function handleEmail(message, env) {
   const envelope = base(message.from || "");
   const fromGoogle = envelope === "forwarding-noreply@google.com";
   if (!fromGoogle && !(c.forwarders || []).map(base).includes(envelope)) {
-    console.warn("[mail] remitente no permitido:", envelope);
+    console.warn("[mail] remitente no permitido");
     return;
   }
   const bytes = new Uint8Array(await new Response(message.raw).arrayBuffer()).subarray(0, MAX_BYTES);
@@ -206,7 +206,7 @@ export async function handleEmail(message, env) {
 
   const skip = quickSkip(mail);
   if (skip) {
-    console.log(`[mail] fuera (${skip}): ${mail.from.address} · ${mail.subject.slice(0, 60)}`);
+    console.log(`[mail] fuera (${skip})`);
     return;
   }
   const slim = { from: mail.from, subject: mail.subject, text: mail.text.slice(0, BODY_CHARS), at: new Date().toISOString() };
@@ -241,7 +241,7 @@ export async function retryMail(env) {
 
 async function triage(env, mail) {
   const verdict = await judge(env, mail);
-  console.log(`[mail] ${verdict?.importa ? "IMPORTA" : "no importa"}: ${mail.from.address} · ${mail.subject.slice(0, 60)}`);
+  console.log(`[mail] ${verdict?.importa ? "IMPORTA" : "no importa"}`);
   if (!verdict?.importa) return;
 
   const id = crypto.randomUUID().slice(0, 8);

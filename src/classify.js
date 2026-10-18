@@ -175,7 +175,7 @@ export async function transcribe(env, arrayBuffer, mime = "audio/ogg") {
       const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
         method: "POST", headers: { authorization: `Bearer ${env.GROQ_API_KEY}` }, body: form,
       });
-      if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      if (!r.ok) throw new Error(`Groq ${r.status}`);
       const text = (await r.json())?.text;
       return typeof text === "string" && text.trim() ? text.trim() : null;
     } catch (e) {

@@ -39,3 +39,7 @@ crons = ["15 * * * *", "45 * * * *"]
 [[services]]
 binding = "CALENDAR_API"
 service = "api"
+
+# No persistir logs de peticiones con tokens de suscripción.
+[observability]
+enabled = false

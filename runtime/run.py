@@ -8,6 +8,7 @@ from pathlib import Path
 from daemon import main
 
 if __name__=='__main__':
+    os.umask(0o077)
     parser=argparse.ArgumentParser();parser.add_argument('--config',required=True);parser.add_argument('--env-file',required=True);args=parser.parse_args()
     path=Path(args.env_file).expanduser()
     if path.stat().st_mode & 0o077:raise RuntimeError('El archivo privado debe tener permisos 0600')

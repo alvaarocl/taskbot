@@ -37,7 +37,7 @@ export async function tg(env, method, payload) {
 }
 
 export async function handleWebhook(request, env, ctx) {
-  if (request.headers.get("x-telegram-bot-api-secret-token") !== env.TG_WEBHOOK_SECRET) {
+  if (request.method !== 'POST' || !env.TG_WEBHOOK_SECRET || request.headers.get("x-telegram-bot-api-secret-token") !== env.TG_WEBHOOK_SECRET) {
     return new Response("forbidden", { status: 403 });
   }
   const update = await request.json();

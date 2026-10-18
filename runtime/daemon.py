@@ -41,7 +41,7 @@ class Worker:
             raise
 
 async def main(config):
-    state=Path(config.get('state_dir','~/.local/share/taskbot')).expanduser();state.mkdir(mode=0o700,parents=True,exist_ok=True)
+    state=Path(config.get('state_dir','~/.local/share/taskbot')).expanduser();state.mkdir(mode=0o700,parents=True,exist_ok=True);state.chmod(0o700)
     # Dos copias del servicio no pueden competir por cuenta, notas o trabajos.
     import fcntl
     lock=(state/'daemon.lock').open('w')
@@ -79,10 +79,12 @@ async def main(config):
         except Exception:log.warning('Resultado pendiente de entregar: %s',key)
         active.pop(key,None)
 
-    heartbeat=0
+    heartbeat=0;cleaned=0
     try:
         while not stop.is_set():
             try:
+                if time.monotonic()-cleaned>3600:
+                    cache.execute('DELETE FROM results WHERE at<?',(time.time()-86400,));cache.commit();cleaned=time.monotonic()
                 if time.monotonic()-heartbeat>30:
                     await asyncio.to_thread(worker.request,'/heartbeat',{'vault':True,'voice':bool(voice and voice.ready)})
                     for job,_task in list(active.values()):

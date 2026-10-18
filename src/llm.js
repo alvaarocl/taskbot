@@ -43,7 +43,7 @@ async function groq(env, model, body, timeoutMs = TIMEOUT_MS) {
       body: JSON.stringify({ model, ...body }),
       signal: ctrl.signal,
     });
-    if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    if (!r.ok) throw new Error(`Groq ${r.status}`);
     return await r.json();
   } finally {
     clearTimeout(timer);

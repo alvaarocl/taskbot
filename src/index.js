@@ -56,10 +56,12 @@ export default {
     if (url.pathname === "/internal/inbox") return url.hostname === "internal" ? handleInbox(request, env) : new Response("not found", { status: 404 });
     // El workflow de Jarvis avisa de cómo fue la llamada (su propio token, no el del panel).
     if (url.pathname === "/api/jarvis/turn" && request.method === "POST") {
+      if(config.runtime?.voice)return new Response('legacy transport disabled',{status:410});
       if (!env.JARVIS_TOKEN || request.headers.get("authorization") !== `Bearer ${env.JARVIS_TOKEN}`) return new Response("unauthorized", { status: 401 });
       return Response.json(await jarvisTurn(env, await request.json().catch(() => null)));
     }
     if (url.pathname === "/api/jarvis") {
+      if(config.runtime?.voice)return new Response('legacy transport disabled',{status:410});
       if (!env.JARVIS_TOKEN || request.headers.get("authorization") !== `Bearer ${env.JARVIS_TOKEN}`) return new Response("unauthorized", { status: 401 });
       if (request.method === "GET") return Response.json(await jarvisJob(env, url.searchParams.get("job")) || { error: "not found" });
       return Response.json(await jarvisReport(env, await request.json().catch(() => null)));

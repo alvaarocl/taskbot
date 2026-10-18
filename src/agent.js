@@ -481,10 +481,11 @@ export async function agent(env, chatId, text, { queued = false, voice = null } 
           const handler = HANDLERS[call.function.name];
           result = handler ? await handler(env, args, { now, run }) : { error: `Herramienta desconocida: ${call.function.name}` };
         } catch (e) {
-          console.error("tool", call.function.name, e?.stack || e);
+          console.error("tool", call.function.name, e?.name || 'Error');
           result = { error: String(e?.message || e).slice(0, 300) };
         }
-        console.log(`[agent] ${call.function.name} ${call.function.arguments} → ${JSON.stringify(result).slice(0, 300)}`);
+        // Los argumentos/resultados pueden contener correos, notas o memoria personal.
+        console.log('[agent]', call.function.name, result?.error ? 'error' : 'ok');
         messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result).slice(0, 8000) });
       }
     }
